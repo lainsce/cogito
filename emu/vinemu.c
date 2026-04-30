@@ -663,7 +663,7 @@ typedef enum {
     VMT_CONSOLE, VMT_TICKS, VMT_SLEEP, VMT_CLIPBOARD_TEXT,
     VMT_SET_CLIPBOARD_TEXT, VMT_HOME_DIR, VMT_PLAY_TONE,
     VMT_SET_VOICE, VMT_SET_ENVELOPE, VMT_SET_PULSE_WIDTH,
-    VMT_PLAY_VOICE, VMT_STOP_VOICE, VMT_SET_FREQUENCY,
+    VMT_PLAY_VOICE, VMT_STOP_VOICE, VMT_SET_VOICE_VOLUME, VMT_SET_FREQUENCY,
     VMT_SET_SYNC, VMT_SET_RING_MOD, VMT_SET_FILTER,
     VMT_SET_FILTER_ROUTE, VMT_SET_MASTER_VOLUME, VMT_BEGIN_AUDIO,
     VMT_END_AUDIO, VMT_SET_PADDLE, VMT_PADDLE, VMT_SPAWN,
@@ -706,6 +706,7 @@ static const VimanaMethod VIMANA_METHODS[] = {
     {OBJ_SYSTEM,"set_voice",VMT_SET_VOICE},{OBJ_SYSTEM,"set_envelope",VMT_SET_ENVELOPE},
     {OBJ_SYSTEM,"set_pulse_width",VMT_SET_PULSE_WIDTH},
     {OBJ_SYSTEM,"play_voice",VMT_PLAY_VOICE},{OBJ_SYSTEM,"stop_voice",VMT_STOP_VOICE},
+    {OBJ_SYSTEM,"set_voice_volume",VMT_SET_VOICE_VOLUME},
     {OBJ_SYSTEM,"set_frequency",VMT_SET_FREQUENCY},{OBJ_SYSTEM,"set_sync",VMT_SET_SYNC},
     {OBJ_SYSTEM,"set_ring_mod",VMT_SET_RING_MOD},{OBJ_SYSTEM,"set_filter",VMT_SET_FILTER},
     {OBJ_SYSTEM,"set_filter_route",VMT_SET_FILTER_ROUTE},
@@ -980,6 +981,7 @@ static Val builtin_chain(VM *vm, const char *name, Val *args, int argc) {
     case VMT_SET_PULSE_WIDTH: if(argc>2)vimana_system_set_pulse_width(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);
     case VMT_PLAY_VOICE: if(argc>3)vimana_system_play_voice(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2]),(int)val_to_i64(args[3])); return val_clone(self);
     case VMT_STOP_VOICE: if(argc>1)vimana_system_stop_voice(sys,(int)val_to_i64(args[1])); return val_clone(self);
+    case VMT_SET_VOICE_VOLUME: if(argc>2)vimana_system_set_voice_volume(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);
     case VMT_SET_FREQUENCY: if(argc>2)vimana_system_set_frequency(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);
     case VMT_SET_SYNC: if(argc>2)vimana_system_set_sync(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);
     case VMT_SET_RING_MOD: if(argc>2)vimana_system_set_ring_mod(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);

@@ -1641,6 +1641,20 @@ void vimana_system_play_voice(vimana_system *system, int channel,
     system->audio_needs_resume = true;
 }
 
+void vimana_system_set_voice_volume(vimana_system *system, int channel,
+                                    int volume) {
+  if (!vimana_system_ensure_audio(system))
+    return;
+  if (channel < 0 || channel >= VIMANA_VOICE_COUNT)
+    return;
+  if (volume < 0) volume = 0; else if (volume > 15) volume = 15;
+  vimana_audio_lock(system);
+  /* Update amp without retriggering envelope or resetting phase — used for
+     volume slides where the note must keep ringing smoothly. */
+  system->voices[channel].amp = ((float)volume / 15.0f) * 0.25f;
+  vimana_audio_unlock(system);
+}
+
 void vimana_system_stop_voice(vimana_system *system, int channel) {
   if (!vimana_system_ensure_audio(system))
     return;

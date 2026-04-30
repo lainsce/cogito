@@ -474,6 +474,14 @@ static void __vimana_system_stop_voice(YisVal sysv, YisVal chv) {
   vimana_system_stop_voice(system, (int)yis_as_int(chv));
 }
 
+static void __vimana_system_set_voice_volume(YisVal sysv, YisVal chv,
+                                             YisVal volv) {
+  vimana_system *system = vimana_system_from_val(
+      sysv, "vimana.system.set_voice_volume expects system");
+  vimana_system_set_voice_volume(system, (int)yis_as_int(chv),
+                                 (int)yis_as_int(volv));
+}
+
 static void __vimana_system_set_frequency(YisVal sysv, YisVal chv,
                                           YisVal freqv) {
   vimana_system *system =

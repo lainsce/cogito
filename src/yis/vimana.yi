@@ -80,6 +80,7 @@ def paddle_count = 2
 : __vimana_system_set_pulse_width(sys = system, channel = num, width = num) (( -- )) { }
 : __vimana_system_play_voice(sys = system, channel = num, pitch = num, volume = num) (( -- )) { }
 : __vimana_system_stop_voice(sys = system, channel = num) (( -- )) { }
+: __vimana_system_set_voice_volume(sys = system, channel = num, volume = num) (( -- )) { }
 : __vimana_system_set_frequency(sys = system, channel = num, freq16 = num) (( -- )) { }
 : __vimana_system_set_sync(sys = system, channel = num, enable = num) (( -- )) { }
 : __vimana_system_set_ring_mod(sys = system, channel = num, enable = num) (( -- )) { }
@@ -258,6 +259,10 @@ pub ,: system
     ;
     :: stop_voice(this, channel = num) (( system ))
         __vimana_system_stop_voice(this, channel)
+        <- this
+    ;
+    :: set_voice_volume(this, channel = num, volume = num) (( system ))
+        __vimana_system_set_voice_volume(this, channel, volume)
         <- this
     ;
     :: set_frequency(this, channel = num, freq16 = num) (( system ))

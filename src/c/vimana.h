@@ -113,6 +113,8 @@ void vimana_system_set_pulse_width(vimana_system *system, int channel,
                                    int width);
 void vimana_system_play_voice(vimana_system *system, int channel,
                               int pitch, int volume);
+void vimana_system_set_voice_volume(vimana_system *system, int channel,
+                                    int volume);
 void vimana_system_stop_voice(vimana_system *system, int channel);
 void vimana_system_set_frequency(vimana_system *system, int channel,
                                  int freq16);
