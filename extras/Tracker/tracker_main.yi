@@ -1,0 +1,1738 @@
+cask main
+
+bring stdr
+bring vimana
+bring tracker_font
+bring tracker_demo
+bring tracker_mod
+bring tracker_draw
+
+def SCREEN_W = 896
+def SCREEN_H = 417
+def SCALE = 1
+
+def PAGE_COUNT = 32
+def PAGE_STEPS = 64
+def STEPS = PAGE_COUNT * PAGE_STEPS
+def VISIBLE_STEPS = 16
+def TRACKS = 8
+def MOD_CHANNELS = 4
+
+def FONT_H = 17 -- 16 + 1px of space
+def CELL_W = 94
+def ROW_H = FONT_H
+def MAP_X = 16
+def MAP_Y = 131
+def MAP_CELL_W = 10
+def MAP_CELL_H = 8
+def MAP_COLS = 8
+def GRID_X = 144
+def GRID_Y = 131
+def SCOPE_Y = 75
+def SCOPE_H = 48
+def SCOPE_COLS = 24
+
+def KEY_RIGHT = 79
+def KEY_LEFT = 80
+def KEY_DOWN = 81
+def KEY_UP = 82
+def KEY_SPACE = 44
+def KEY_RETURN = 40
+def KEY_BACKSPACE = 42
+def KEY_ESCAPE = 41
+def KEY_LBRACKET = 47
+def KEY_RBRACKET = 48
+def KEY_PAGEUP = 75
+def KEY_PAGEDOWN = 78
+def KEY_MINUS = 45
+def KEY_EQUALS = 46
+def KEY_1 = 30
+def KEY_2 = 31
+def KEY_3 = 32
+def KEY_4 = 33
+def KEY_5 = 34
+def KEY_COMMA = 54
+def KEY_PERIOD = 55
+def KEY_Q = 20
+def KEY_W = 26
+def KEY_E = 8
+def KEY_R = 21
+def KEY_F = 9
+def KEY_H = 11
+def KEY_O = 18
+def KEY_S = 22
+def KEY_LGUI = 227
+def KEY_RGUI = 231
+def KEY_LSHIFT = 225
+def KEY_RSHIFT = 229
+
+def ?notes = []: [num]
+def ?vols = []: [num]
+def ?waves = []: [num]
+def ?cursor_step = 0
+def ?cursor_track = 0
+def ?play_step = 0
+def ?page = 0
+def ?playing = false
+def ?bpm = 128
+def ?octave = 4
+def ?master = 12
+def ?cutoff = 1300
+def ?resonance = 4
+def ?filter_mode = 1
+def ?song_tick_acc = 0
+def ?last_tick = 0
+def ?scope_tick = 0
+def ?show_help = false
+def ?dirty = true
+def ?file_path = ""
+
+def NOTE_HOLD = -1
+def NOTE_REST = -2
+
+def MAX_PATTERNS = 128
+def MAX_CELLS = MAX_PATTERNS * 64 * MOD_CHANNELS
+def MAX_SAMPLES = 32
+def MAX_ORDERS = 256
+def MOD_VOLUME_MAX = 15
+
+-- MOD song layer (used when a .mod file has been loaded). The original
+-- editor grid (notes/vols/waves) stays around for free composing; when a
+-- song is loaded, playback runs from this structure with proper
+-- timing and effect handling instead of the simple grid step engine.
+def ?song_loaded = false
+def ?song_orders = []: [num]
+def ?song_length = 0
+def ?song_pattern_count = 0
+def ?song_restart = 0
+def ?song_period = []: [num]
+def ?song_inst = []: [num]
+def ?song_fx = []: [num]
+def ?song_param = []: [num]
+def ?sample_volume = []: [num]
+def ?sample_wave = []: [num]
+def ?sample_finetune = []: [num]
+def ?sample_loop = []: [num]
+def ?sample_data_off = []: [num]
+def ?sample_length = []: [num]
+def ?sample_loop_start = []: [num]
+def ?sample_loop_len = []: [num]
+def ?song_arrays_ready = false
+
+-- MOD player runtime state. `play_order` indexes song_orders; `play_row`
+-- is 0..63 within the current pattern; `play_tick` counts ticks since
+-- the row started, with `play_speed` ticks per row and `play_tempo`
+-- BPM driving the tick rate (tick_ms = 2500 / tempo).
+def ?play_order = 0
+def ?play_row = 0
+def ?play_tick = 0
+def ?play_speed = 6
+def ?play_tempo = 125
+def ?play_break_row = -1
+def ?play_jump_order = -1
+def ?ch_period = []: [num]
+def ?ch_volume = []: [num]
+def ?ch_sample = []: [num]
+def ?ch_vslide_up = []: [num]
+def ?ch_vslide_down = []: [num]
+def ?ch_pslide_up = []: [num]
+def ?ch_pslide_down = []: [num]
+def ?ch_arp_x = []: [num]
+def ?ch_arp_y = []: [num]
+def ?ch_porta_target = []: [num]
+def ?ch_porta_speed = []: [num]
+def ?ch_vibrato_pos = []: [num]
+def ?ch_vibrato_speed = []: [num]
+def ?ch_vibrato_depth = []: [num]
+def ?ch_tremolo_pos = []: [num]
+def ?ch_tremolo_speed = []: [num]
+def ?ch_tremolo_depth = []: [num]
+def ?ch_note_cut = []: [num]
+def ?ch_retrigger = []: [num]
+
+: idx(step = num, track = num) (( num ))
+    <- step * TRACKS + track
+;
+
+: clamp_cursor() (( -- ))
+    if cursor_step < 0
+        cursor_step = 0
+    if cursor_step >= STEPS
+        cursor_step = STEPS - 1
+    if cursor_track < 0
+        cursor_track = 0
+    if cursor_track >= TRACKS
+        cursor_track = TRACKS - 1
+    page = stdr.floor(cursor_step / PAGE_STEPS)
+;
+
+: page_start() (( num ))
+    <- page * PAGE_STEPS
+;
+
+: page_end() (( num ))
+    <- page_start() + PAGE_STEPS
+;
+
+: set_page(p = num) (( -- ))
+    if p < 0
+        p = 0
+    if p >= PAGE_COUNT
+        p = PAGE_COUNT - 1
+    page = p
+    cursor_step = page * PAGE_STEPS
+    dirty = true
+;
+
+: song_step_text(step = num, ch = num) (( string ))
+    if !song_loaded || ch >= MOD_CHANNELS
+        let k = idx(step, ch)
+        let ?name = tracker_mod.note_name(notes[k])
+        let ?inst = tracker_mod.wave_code(waves[ch])
+        let ?vol = vols[k]
+        if vol < 0
+            vol = 0
+        if vol > 15
+            vol = 15
+        <- name + tracker_mod.hex2(inst) + "C" + tracker_mod.hex2(vol)
+    let op = stdr.floor(step / 64)
+    if op < 0 || op >= song_length
+        <- "--------"
+    let row = step % 64
+    let pat = song_orders[op]
+    let k = song_cell_idx(pat, row, ch)
+    let period = song_period[k]
+    let inst = song_inst[k]
+    let fx = song_fx[k]
+    let param = song_param[k]
+    let ?name = "---"
+    if period > 0
+        name = tracker_mod.note_name(tracker_mod.nearest_note(period))
+    <- name + tracker_mod.hex2(inst) + tracker_mod.hex1(fx) + tracker_mod.hex2(param)
+;
+
+: channel_type(track = num) (( string ))
+    if song_loaded && track < MOD_CHANNELS
+        let smp = ch_sample[track]
+        if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
+            <- "PCM"
+    if track >= 0 && track < TRACKS
+        <- tracker_mod.wave_type(waves[track])
+    <- "OFF"
+;
+
+: set_extra_channel_waves() (( -- ))
+    if stdr.len(waves) >= 8
+        waves[4] = vimana.wave_triangle
+        waves[5] = vimana.wave_sawtooth
+        waves[6] = vimana.wave_pulse
+        waves[7] = vimana.wave_psg
+;
+
+: push_byte(out = any, b = num) (( -- ))
+    if b < 0
+        b = 256 + (b % 256)
+    stdr.push(out, b % 256)
+;
+
+: push_be16(out = any, v = num) (( -- ))
+    push_byte(out, stdr.floor(v / 256))
+    push_byte(out, v % 256)
+;
+
+: push_text_fixed(out = any, text = string, size = num) (( -- ))
+    for (let ?i = 0; i < size; i += 1)
+        if i < stdr.len(text)
+            push_byte(out, stdr.char_code(stdr.char_at(text, i)))
+        else
+            push_byte(out, 0)
+;
+
+: mod_pattern_count() (( num ))
+    <- stdr.floor((STEPS + 63) / 64)
+;
+
+-- ── MOD song parsing & playback ─────────────────────────────────────
+
+: song_cell_idx(pat = num, row = num, ch = num) (( num ))
+    <- pat * 64 * MOD_CHANNELS + row * MOD_CHANNELS + ch
+;
+
+: period_to_freq16(period = num) (( num ))
+    if period < 28
+        <- 0
+    let ?fr = stdr.floor(457769 / period)
+    if fr > 65535
+        fr = 65535
+    if fr < 0
+        fr = 0
+    <- fr
+;
+
+: apply_channel_period(sys = vimana.system, ch = num, period = num) (( -- ))
+    let smp = ch_sample[ch]
+    if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
+        sys.set_frequency(ch, period)
+    else
+        sys.set_frequency(ch, period_to_freq16(period))
+;
+
+: period_shift(period = num, semis = num) (( num ))
+    if period <= 0
+        <- 0
+    let n = tracker_mod.nearest_note(period) + semis
+    <- tracker_mod.period_for_note(n)
+;
+
+: vibrato_delta(pos = num, depth = num) (( num ))
+    let phase = pos % 64
+    let ?wave = phase
+    if phase >= 32
+        wave = 63 - phase
+    wave = wave - 16
+    <- stdr.floor((wave * depth) / 8)
+;
+
+: vol_mod_to_vim(v = num) (( num ))
+    if v <= 0
+        <- 0
+    if v >= 64
+        <- MOD_VOLUME_MAX
+    <- stdr.floor((v * v * MOD_VOLUME_MAX + 2048) / 4096)
+;
+
+: classify_sample_bytes(bytes = any, off = num, length = num) (( num ))
+    if length < 16
+        <- vimana.wave_pulse
+    let ?limit = length
+    if limit > 4096
+        limit = 4096
+    let ?zc = 0
+    let ?prev_pos = 1
+    for (let ?i = 0; i < limit; i += 1)
+        let b = byte_at(bytes, off + i)
+        let ?signed = b
+        if signed > 127
+            signed = signed - 256
+        let ?pos = 0
+        if signed >= 0
+            pos = 1
+        if i > 0 && pos != prev_pos
+            zc += 1
+        prev_pos = pos
+    if zc * 5 > limit * 2
+        <- vimana.wave_noise
+    if length > 8000
+        <- vimana.wave_triangle
+    <- vimana.wave_pulse
+;
+
+: song_alloc() (( -- ))
+    if song_arrays_ready
+        <-
+    for (let ?i = 0; i < MAX_ORDERS; i += 1)
+        stdr.push(song_orders, 0)
+    for (let ?i = 0; i < MAX_CELLS; i += 1)
+        stdr.push(song_period, 0)
+        stdr.push(song_inst, 0)
+        stdr.push(song_fx, 0)
+        stdr.push(song_param, 0)
+    for (let ?i = 0; i < MAX_SAMPLES; i += 1)
+        stdr.push(sample_volume, 0)
+        stdr.push(sample_wave, vimana.wave_pulse)
+        stdr.push(sample_finetune, 0)
+        stdr.push(sample_loop, 0)
+        stdr.push(sample_data_off, 0)
+        stdr.push(sample_length, 0)
+        stdr.push(sample_loop_start, 0)
+        stdr.push(sample_loop_len, 0)
+    for (let ?ch = 0; ch < TRACKS; ch += 1)
+        stdr.push(ch_period, 0)
+        stdr.push(ch_volume, 0)
+        stdr.push(ch_sample, 0)
+        stdr.push(ch_vslide_up, 0)
+        stdr.push(ch_vslide_down, 0)
+        stdr.push(ch_pslide_up, 0)
+        stdr.push(ch_pslide_down, 0)
+        stdr.push(ch_arp_x, 0)
+        stdr.push(ch_arp_y, 0)
+        stdr.push(ch_porta_target, 0)
+        stdr.push(ch_porta_speed, 0)
+        stdr.push(ch_vibrato_pos, 0)
+        stdr.push(ch_vibrato_speed, 0)
+        stdr.push(ch_vibrato_depth, 0)
+        stdr.push(ch_tremolo_pos, 0)
+        stdr.push(ch_tremolo_speed, 0)
+        stdr.push(ch_tremolo_depth, 0)
+        stdr.push(ch_note_cut, -1)
+        stdr.push(ch_retrigger, 0)
+    song_arrays_ready = true
+;
+
+: ensure_editor_arrays() (( -- ))
+    let need_cells = STEPS * TRACKS
+    let n_notes = stdr.len(notes)
+    for (let ?i = n_notes; i < need_cells; i += 1)
+        stdr.push(notes, NOTE_HOLD)
+    let n_vols = stdr.len(vols)
+    for (let ?i = n_vols; i < need_cells; i += 1)
+        stdr.push(vols, 0)
+    let n_waves = stdr.len(waves)
+    for (let ?i = n_waves; i < TRACKS; i += 1)
+        stdr.push(waves, vimana.wave_pulse)
+    set_extra_channel_waves()
+;
+
+: parse_song(bytes = any) (( bool ))
+    if !is_mod(bytes)
+        <- false
+    song_alloc()
+    song_length = byte_at(bytes, 950)
+    if song_length <= 0 || song_length > 128
+        song_length = 1
+    song_restart = byte_at(bytes, 951)
+    if song_restart >= song_length
+        song_restart = 0
+    song_pattern_count = 1
+    for (let ?i = 0; i < MAX_ORDERS; i += 1)
+        song_orders[i] = 0
+    for (let ?i = 0; i < song_length; i += 1)
+        let p = byte_at(bytes, 952 + i)
+        song_orders[i] = p
+        if p + 1 > song_pattern_count
+            song_pattern_count = p + 1
+    if song_pattern_count > MAX_PATTERNS
+        song_pattern_count = MAX_PATTERNS
+    if 1084 + song_pattern_count * 1024 > stdr.len(bytes)
+        <- false
+    for (let ?pat = 0; pat < song_pattern_count; pat += 1)
+        for (let ?row = 0; row < 64; row += 1)
+            for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
+                let off = 1084 + pat * 1024 + row * 16 + ch * 4
+                let b0 = byte_at(bytes, off)
+                let b1 = byte_at(bytes, off + 1)
+                let b2 = byte_at(bytes, off + 2)
+                let b3 = byte_at(bytes, off + 3)
+                let k = song_cell_idx(pat, row, ch)
+                song_period[k] = (b0 % 16) * 256 + b1
+                song_inst[k] = stdr.floor(b0 / 16) * 16 + stdr.floor(b2 / 16)
+                song_fx[k] = b2 % 16
+                song_param[k] = b3
+    let ?cur_off = 1084 + song_pattern_count * 1024
+    for (let ?i = 0; i < MAX_SAMPLES; i += 1)
+        sample_volume[i] = 0
+        sample_wave[i] = vimana.wave_pulse
+        sample_finetune[i] = 0
+        sample_loop[i] = 0
+        sample_data_off[i] = 0
+        sample_length[i] = 0
+        sample_loop_start[i] = 0
+        sample_loop_len[i] = 0
+    for (let ?si = 0; si < 31; si += 1)
+        let so = 20 + si * 30
+        let len_words = byte_at(bytes, so + 22) * 256 + byte_at(bytes, so + 23)
+        let length = len_words * 2
+        let ft_raw = byte_at(bytes, so + 24) % 16
+        let ?ft = ft_raw
+        if ft >= 8
+            ft = ft - 16
+        let vol = byte_at(bytes, so + 25)
+        let rep_start_words = byte_at(bytes, so + 26) * 256 + byte_at(bytes, so + 27)
+        let rep_len_words = byte_at(bytes, so + 28) * 256 + byte_at(bytes, so + 29)
+        sample_volume[si + 1] = vol
+        sample_finetune[si + 1] = ft
+        sample_data_off[si + 1] = cur_off
+        sample_length[si + 1] = length
+        sample_loop_start[si + 1] = rep_start_words * 2
+        sample_loop_len[si + 1] = rep_len_words * 2
+        if rep_len_words > 1
+            sample_loop[si + 1] = 1
+        if length >= 16 && cur_off + length <= stdr.len(bytes)
+            sample_wave[si + 1] = classify_sample_bytes(bytes, cur_off, length)
+        cur_off = cur_off + length
+    play_order = 0
+    play_row = 0
+    play_tick = 0
+    play_speed = 6
+    play_tempo = 125
+    play_break_row = -1
+    play_jump_order = -1
+    bpm = 125
+    for (let ?ch = 0; ch < TRACKS; ch += 1)
+        ch_period[ch] = 0
+        ch_volume[ch] = 0
+        ch_sample[ch] = 0
+        ch_vslide_up[ch] = 0
+        ch_vslide_down[ch] = 0
+        ch_pslide_up[ch] = 0
+        ch_pslide_down[ch] = 0
+        ch_arp_x[ch] = 0
+        ch_arp_y[ch] = 0
+        ch_porta_target[ch] = 0
+        ch_porta_speed[ch] = 0
+        ch_vibrato_pos[ch] = 0
+        ch_vibrato_speed[ch] = 0
+        ch_vibrato_depth[ch] = 0
+        ch_tremolo_pos[ch] = 0
+        ch_tremolo_speed[ch] = 0
+        ch_tremolo_depth[ch] = 0
+        ch_note_cut[ch] = -1
+        ch_retrigger[ch] = 0
+    song_loaded = true
+    <- true
+;
+
+: song_process_row(sys = vimana.system) (( -- ))
+    let pat = song_orders[play_order]
+    for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
+        let k = song_cell_idx(pat, play_row, ch)
+        let period = song_period[k]
+        let inst = song_inst[k]
+        let fx = song_fx[k]
+        let param = song_param[k]
+
+        ch_vslide_up[ch] = 0
+        ch_vslide_down[ch] = 0
+        ch_pslide_up[ch] = 0
+        ch_pslide_down[ch] = 0
+        ch_arp_x[ch] = 0
+        ch_arp_y[ch] = 0
+        ch_note_cut[ch] = -1
+        ch_retrigger[ch] = 0
+
+        let ?retrigger = false
+
+        if inst > 0 && inst < MAX_SAMPLES
+            ch_sample[ch] = inst
+            ch_volume[ch] = sample_volume[inst]
+
+        if period > 0 && fx != 3 && fx != 5
+            ch_period[ch] = period
+            retrigger = true
+        elif period > 0
+            ch_porta_target[ch] = period
+
+        if fx == 0 && param > 0
+            ch_arp_x[ch] = stdr.floor(param / 16)
+            ch_arp_y[ch] = param % 16
+        elif fx == 3
+            if param > 0
+                ch_porta_speed[ch] = param
+        elif fx == 4
+            let vs = stdr.floor(param / 16)
+            let vd = param % 16
+            if vs > 0
+                ch_vibrato_speed[ch] = vs
+            if vd > 0
+                ch_vibrato_depth[ch] = vd
+        elif fx == 5
+            if param >= 16
+                ch_vslide_up[ch] = stdr.floor(param / 16)
+            else
+                ch_vslide_down[ch] = param % 16
+        elif fx == 6
+            if param >= 16
+                ch_vslide_up[ch] = stdr.floor(param / 16)
+            else
+                ch_vslide_down[ch] = param % 16
+        elif fx == 7
+            let ts = stdr.floor(param / 16)
+            let td = param % 16
+            if ts > 0
+                ch_tremolo_speed[ch] = ts
+            if td > 0
+                ch_tremolo_depth[ch] = td
+        elif fx == 0xA
+            if param >= 16
+                ch_vslide_up[ch] = stdr.floor(param / 16)
+            else
+                ch_vslide_down[ch] = param % 16
+        elif fx == 1
+            ch_pslide_up[ch] = param
+        elif fx == 2
+            ch_pslide_down[ch] = param
+        elif fx == 0xC
+            let ?nv = param
+            if nv > 64
+                nv = 64
+            if nv < 0
+                nv = 0
+            ch_volume[ch] = nv
+        elif fx == 0xB
+            play_jump_order = param
+        elif fx == 0xD
+            let ?br = stdr.floor(param / 16) * 10 + (param % 16)
+            if br > 63
+                br = 0
+            play_break_row = br
+        elif fx == 0xE
+            let sub = stdr.floor(param / 16)
+            let val = param % 16
+            if sub == 1
+                ch_period[ch] = ch_period[ch] - val
+                if ch_period[ch] < 56
+                    ch_period[ch] = 56
+            elif sub == 2
+                ch_period[ch] = ch_period[ch] + val
+                if ch_period[ch] > 1712
+                    ch_period[ch] = 1712
+            elif sub == 0xA
+                ch_volume[ch] = ch_volume[ch] + val
+                if ch_volume[ch] > 64
+                    ch_volume[ch] = 64
+            elif sub == 0xB
+                ch_volume[ch] = ch_volume[ch] - val
+                if ch_volume[ch] < 0
+                    ch_volume[ch] = 0
+            elif sub == 0xC
+                ch_note_cut[ch] = val
+            elif sub == 9
+                ch_retrigger[ch] = val
+        elif fx == 0xF
+            if param > 0 && param <= 31
+                play_speed = param
+            elif param > 31
+                play_tempo = param
+                bpm = param
+
+        if retrigger
+            let smp = ch_sample[ch]
+            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
+                sys.play_sample(ch, smp, ch_period[ch], ch_volume[ch])
+            else
+                let ?wave = vimana.wave_pulse
+                if smp >= 1 && smp < MAX_SAMPLES
+                    wave = sample_wave[smp]
+                sys.set_voice(ch, wave)
+                sys.play_voice(ch, 60, vol_mod_to_vim(ch_volume[ch]))
+                sys.set_frequency(ch, period_to_freq16(ch_period[ch]))
+        else
+            let smp = ch_sample[ch]
+            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
+                sys.set_voice_volume(ch, ch_volume[ch])
+            else
+                sys.set_voice_volume(ch, vol_mod_to_vim(ch_volume[ch]))
+        apply_channel_period(sys, ch, ch_period[ch])
+;
+
+: song_apply_continuous(sys = vimana.system) (( -- ))
+    for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
+        let ?changed_vol = false
+        let ?changed_period = false
+        if ch_vslide_up[ch] > 0
+            let ?nv = ch_volume[ch] + ch_vslide_up[ch]
+            if nv > 64
+                nv = 64
+            ch_volume[ch] = nv
+            changed_vol = true
+        elif ch_vslide_down[ch] > 0
+            let ?nv = ch_volume[ch] - ch_vslide_down[ch]
+            if nv < 0
+                nv = 0
+            ch_volume[ch] = nv
+            changed_vol = true
+        if ch_pslide_up[ch] > 0
+            let ?np = ch_period[ch] - ch_pslide_up[ch]
+            if np < 56
+                np = 56
+            ch_period[ch] = np
+            changed_period = true
+        elif ch_pslide_down[ch] > 0
+            let ?np = ch_period[ch] + ch_pslide_down[ch]
+            if np > 1712
+                np = 1712
+            ch_period[ch] = np
+            changed_period = true
+        elif ch_porta_target[ch] > 0 && ch_porta_speed[ch] > 0
+            if ch_period[ch] < ch_porta_target[ch]
+                let ?np = ch_period[ch] + ch_porta_speed[ch]
+                if np > ch_porta_target[ch]
+                    np = ch_porta_target[ch]
+                ch_period[ch] = np
+                changed_period = true
+            elif ch_period[ch] > ch_porta_target[ch]
+                let ?np = ch_period[ch] - ch_porta_speed[ch]
+                if np < ch_porta_target[ch]
+                    np = ch_porta_target[ch]
+                ch_period[ch] = np
+                changed_period = true
+        let ?out_period = ch_period[ch]
+        if ch_arp_x[ch] > 0 || ch_arp_y[ch] > 0
+            let arp_pos = play_tick % 3
+            if arp_pos == 1
+                out_period = period_shift(ch_period[ch], ch_arp_x[ch])
+            elif arp_pos == 2
+                out_period = period_shift(ch_period[ch], ch_arp_y[ch])
+            changed_period = true
+        if ch_vibrato_depth[ch] > 0 && ch_vibrato_speed[ch] > 0
+            ch_vibrato_pos[ch] = ch_vibrato_pos[ch] + ch_vibrato_speed[ch]
+            out_period = ch_period[ch] + vibrato_delta(ch_vibrato_pos[ch], ch_vibrato_depth[ch])
+            if out_period < 56
+                out_period = 56
+            if out_period > 1712
+                out_period = 1712
+            changed_period = true
+        if changed_vol
+            let smp = ch_sample[ch]
+            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
+                sys.set_voice_volume(ch, ch_volume[ch])
+            else
+                sys.set_voice_volume(ch, vol_mod_to_vim(ch_volume[ch]))
+        if ch_tremolo_depth[ch] > 0 && ch_tremolo_speed[ch] > 0
+            ch_tremolo_pos[ch] = ch_tremolo_pos[ch] + ch_tremolo_speed[ch]
+            let ?tv = ch_volume[ch] + vibrato_delta(ch_tremolo_pos[ch], ch_tremolo_depth[ch])
+            if tv < 0
+                tv = 0
+            if tv > 64
+                tv = 64
+            let smp = ch_sample[ch]
+            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
+                sys.set_voice_volume(ch, tv)
+            else
+                sys.set_voice_volume(ch, vol_mod_to_vim(tv))
+        if ch_note_cut[ch] >= 0 && play_tick >= ch_note_cut[ch]
+            sys.stop_voice(ch)
+        elif ch_retrigger[ch] > 0 && play_tick > 0 && play_tick % ch_retrigger[ch] == 0
+            let smp = ch_sample[ch]
+            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
+                sys.play_sample(ch, smp, ch_period[ch], ch_volume[ch])
+        if changed_period
+            apply_channel_period(sys, ch, out_period)
+;
+
+: song_advance_row() (( -- ))
+    let ?next_row = play_row + 1
+    let ?next_order = play_order
+    let ?row_set = false
+    if play_break_row >= 0
+        next_row = play_break_row
+        play_break_row = -1
+        row_set = true
+    if play_jump_order >= 0
+        next_order = play_jump_order
+        play_jump_order = -1
+        if !row_set
+            next_row = 0
+    elif row_set
+        next_order = play_order + 1
+    elif next_row >= 64
+        next_row = 0
+        next_order = play_order + 1
+    if next_order >= song_length
+        next_order = song_restart
+        if next_order >= song_length
+            next_order = 0
+    play_order = next_order
+    play_row = next_row
+;
+
+: sample_value(code = num, i = num) (( num ))
+    if code == 1
+        if i < 16
+            <- -64 + i * 8
+        <- 64 - (i - 16) * 8
+    elif code == 2
+        <- -64 + i * 4
+    elif code == 3
+        if i < 16
+            <- 64
+        <- -64
+    elif code == 4
+        let y = (i * 73 + 41)
+        <- (y % 129) - 64
+    elif i % 4 < 2
+        <- 48
+    <- -48
+;
+
+: push_sample_header(out = any, code = num) (( -- ))
+    let ?name = "vimana"
+    if code == 1
+        name = "vimana triangle"
+    elif code == 2
+        name = "vimana saw"
+    elif code == 3
+        name = "vimana pulse"
+    elif code == 4
+        name = "vimana noise"
+    elif code == 5
+        name = "vimana psg"
+    push_text_fixed(out, name, 22)
+    if code > 0 && code <= 5
+        push_be16(out, 16)
+        push_byte(out, 0)
+        push_byte(out, 64)
+        push_be16(out, 0)
+        push_be16(out, 16)
+    else
+        push_be16(out, 0)
+        push_byte(out, 0)
+        push_byte(out, 0)
+        push_be16(out, 0)
+        push_be16(out, 0)
+;
+
+: push_sample_data(out = any, code = num) (( -- ))
+    for (let ?i = 0; i < 32; i += 1)
+        push_byte(out, sample_value(code, i))
+;
+
+: push_mod_cell(out = any, step = num, ch = num) (( -- ))
+    if step >= STEPS
+        push_byte(out, 0)
+        push_byte(out, 0)
+        push_byte(out, 0)
+        push_byte(out, 0)
+        <-
+    let k = idx(step, ch)
+    let n = notes[k]
+    let ?period = 0
+    let ?inst = 0
+    let ?effect = 0
+    let ?param = 0
+    if n == NOTE_REST
+        effect = 12
+    elif n >= 0
+        period = tracker_mod.period_for_note(n)
+        inst = tracker_mod.wave_code(waves[ch])
+        effect = 12
+        param = vols[k] * 4
+        if param > 64
+            param = 64
+    if step == 0 && ch == 0
+        effect = 15
+        param = bpm
+        if param < 32
+            param = 32
+        if param > 255
+            param = 255
+    push_byte(out, stdr.floor(inst / 16) * 16 + stdr.floor(period / 256))
+    push_byte(out, period % 256)
+    push_byte(out, (inst % 16) * 16 + effect)
+    push_byte(out, param)
+;
+
+: mod_bytes() (( [any] ))
+    let ?out = []: [any]
+    let patterns = mod_pattern_count()
+    push_text_fixed(out, "Tracker File", 20)
+    for (let ?smp = 1; smp <= 31; smp += 1)
+        push_sample_header(out, smp)
+    push_byte(out, patterns)
+    push_byte(out, 0)
+    for (let ?i = 0; i < 128; i += 1)
+        if i < patterns
+            push_byte(out, i)
+        else
+            push_byte(out, 0)
+    push_text_fixed(out, "M.K.", 4)
+    for (let ?pat = 0; pat < patterns; pat += 1)
+        for (let ?row = 0; row < 64; row += 1)
+            for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
+                push_mod_cell(out, pat * 64 + row, ch)
+    for (let ?code = 1; code <= 5; code += 1)
+        push_sample_data(out, code)
+    <- out
+;
+
+: byte_at(bytes = any, pos = num) (( num ))
+    <- stdr.floor(stdr.num(bytes[pos] ?? 0)) % 256
+;
+
+: byte_slice(bytes = any, off = num, length = num) (( [any] ))
+    let ?out = []: [any]
+    for (let ?i = 0; i < length; i += 1)
+        stdr.push(out, byte_at(bytes, off + i))
+    <- out
+;
+
+: upload_mod_samples(sys = vimana.system, bytes = any) (( -- ))
+    for (let ?smp = 1; smp < MAX_SAMPLES; smp += 1)
+        let len = sample_length[smp]
+        let off = sample_data_off[smp]
+        if len > 0 && off + len <= stdr.len(bytes)
+            let loop_start = sample_loop_start[smp]
+            let loop_len = sample_loop_len[smp]
+            if loop_start + loop_len > len
+                loop_start = 0
+                loop_len = 0
+            sys.set_sample(smp, byte_slice(bytes, off, len), loop_start, loop_len)
+;
+
+: is_mod(bytes = any) (( bool ))
+    if stdr.len(bytes) < 1084
+        <- false
+    let a = byte_at(bytes, 1080)
+    let b = byte_at(bytes, 1081)
+    let c = byte_at(bytes, 1082)
+    let d = byte_at(bytes, 1083)
+    if a == 77 && b == 46 && c == 75 && d == 46
+        <- true
+    if a == 77 && b == 33 && c == 75 && d == 33
+        <- true
+    if a == 52 && b == 67 && c == 72 && d == 78
+        <- true
+    <- false
+;
+
+: load_mod_bytes(bytes = any) (( bool ))
+    if !parse_song(bytes)
+        <- false
+    ensure_editor_arrays()
+    -- Mirror the song into the editor grid for visual reference. Playback
+    -- of a loaded song uses the song structure directly, so the grid
+    -- snapshot is only for the user to scrub through the music.
+    for (let ?i = 0; i < STEPS * TRACKS; i += 1)
+        notes[i] = NOTE_HOLD
+        vols[i] = 0
+    let ?step = 0
+    for (let ?op = 0; op < song_length; op += 1)
+        if step < STEPS
+            let pat = song_orders[op]
+            for (let ?row = 0; row < 64; row += 1)
+                if step < STEPS
+                    for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
+                        let k = song_cell_idx(pat, row, ch)
+                        let period = song_period[k]
+                        let inst = song_inst[k]
+                        let fx = song_fx[k]
+                        let param = song_param[k]
+                        let gk = idx(step, ch)
+                        if period > 0
+                            notes[gk] = tracker_mod.nearest_note(period)
+                            let ?gv = 12
+                            if inst > 0 && inst < MAX_SAMPLES
+                                gv = vol_mod_to_vim(sample_volume[inst])
+                                waves[ch] = sample_wave[inst]
+                            if fx == 0xC
+                                gv = vol_mod_to_vim(param)
+                            vols[gk] = gv
+                        elif fx == 0xC && param == 0
+                            notes[gk] = NOTE_REST
+                            vols[gk] = 0
+                    step += 1
+    bpm = play_tempo
+    cursor_step = 0
+    cursor_track = 0
+    play_step = 0
+    page = 0
+    dirty = true
+    <- true
+;
+
+: new_file(sys = vimana.system) (( -- ))
+    playing = false
+    stop_all(sys)
+    song_loaded = false
+    file_path = ""
+    cursor_step = 0
+    cursor_track = 0
+    page = 0
+    play_step = 0
+    bpm = 128
+    let n = stdr.len(notes)
+    for (let ?i = 0; i < n; i += 1)
+        notes[i] = NOTE_HOLD
+        vols[i] = 0
+    waves[0] = vimana.wave_pulse
+    waves[1] = vimana.wave_pulse
+    waves[2] = vimana.wave_pulse
+    waves[3] = vimana.wave_pulse
+    set_extra_channel_waves()
+    setup_audio(sys)
+    dirty = true
+;
+
+: save_file_as(fsys = vimana.file) (( -- ))
+    let picked = stdr.save_file_dialog("Save Track", "tracker.mod", "mod")
+    if is_null(picked)
+        <-
+    let path = str(picked)
+    if stdr.len(path) == 0
+        <-
+    file_path = path
+    fsys.write_bytes(path, mod_bytes())
+    dirty = true
+;
+
+: save_file(fsys = vimana.file) (( -- ))
+    if stdr.len(file_path) == 0
+        save_file_as(fsys)
+        <-
+    fsys.write_bytes(file_path, mod_bytes())
+    dirty = true
+;
+
+: open_file(fsys = vimana.file, sys = vimana.system) (( -- ))
+    let picked = stdr.open_file_dialog("Open Track", "mod")
+    if is_null(picked)
+        <-
+    let path = str(picked)
+    if stdr.len(path) == 0
+        <-
+    load_mod_path(fsys, sys, path)
+;
+
+: load_mod_path(fsys = vimana.file, sys = vimana.system, path = string) (( bool ))
+    if stdr.len(path) == 0 || !fsys.exists(path)
+        <- false
+    let bytes = fsys.read_bytes(path)
+    if !load_mod_bytes(bytes)
+        <- false
+    upload_mod_samples(sys, bytes)
+    file_path = path
+    playing = false
+    setup_audio(sys)
+    stop_all(sys)
+    dirty = true
+    <- true
+;
+
+def ICN_NEW  = [0x007f, 0x4141, 0x4142, 0x457a]
+def ICN_OPEN = [0x007f, 0x556b, 0x556a, 0x557a]
+def ICN_SAVE = [0x0008, 0x2a14, 0x6314, 0x2a08]
+def FILE_BTN_Y = 30
+def FILE_BTN_SIZE = 16
+def FILE_BTN_NEW_X = SCREEN_W - 80
+def FILE_BTN_OPEN_X = SCREEN_W - 64
+def FILE_BTN_SAVE_X = SCREEN_W - 32
+
+def ?file_btn_hover = -1
+
+: put_icn_2x(scr = vimana.screen, x = num, y = num, icon = [num], fg = num, bg = num) (( -- ))
+    for (let ?row = 0; row < 8; row += 1)
+        let word = icon[stdr.floor(row / 2)]
+        let ?byte = word % 256
+        if row % 2 == 0
+            byte = stdr.floor(word / 256) % 256
+        for (let ?col = 0; col < 8; col += 1)
+            let ?mask = 1
+            for (let ?i = 0; i < (7 - col); i += 1)
+                mask = mask * 2
+            let bit = stdr.floor(byte / mask) % 2
+            let ?c = bg
+            if bit == 1
+                c = fg
+            tracker_draw.fill(scr, x + col * 2, y + row * 2, 2, 2, c)
+;
+
+: in_file_btn(dev = vimana.device, x = num) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= x && mx < x + FILE_BTN_SIZE && my >= FILE_BTN_Y && my < FILE_BTN_Y + FILE_BTN_SIZE
+;
+
+: hovered_file_btn(dev = vimana.device) (( num ))
+    if in_file_btn(dev, FILE_BTN_NEW_X)
+        <- 0
+    if in_file_btn(dev, FILE_BTN_OPEN_X)
+        <- 1
+    if in_file_btn(dev, FILE_BTN_SAVE_X)
+        <- 2
+    <- -1
+;
+
+: draw_file_buttons(scr = vimana.screen) (( -- ))
+    let ?new_fg = 1
+    let ?open_fg = 1
+    let ?save_fg = 1
+    if file_btn_hover == 0
+        new_fg = 3
+    if file_btn_hover == 1
+        open_fg = 3
+    if file_btn_hover == 2
+        save_fg = 3
+    put_icn_2x(scr, FILE_BTN_NEW_X,  FILE_BTN_Y, ICN_NEW,  new_fg,  0)
+    put_icn_2x(scr, FILE_BTN_OPEN_X, FILE_BTN_Y, ICN_OPEN, open_fg, 0)
+    put_icn_2x(scr, FILE_BTN_SAVE_X, FILE_BTN_Y, ICN_SAVE, save_fg, 0)
+;
+
+: draw_header(scr = vimana.screen) (( -- ))
+    if song_loaded
+        scr.put_text(16, 33, "LEN " + tracker_mod.hex2(song_length) + " PAT " + tracker_mod.hex2(song_pattern_count) + " SPD " + tracker_mod.hex1(play_speed) + " BPM " + str(play_tempo) + " RST " + tracker_mod.hex2(song_restart), 1, 0)
+        if playing
+            scr.put_text(680, 33, "ORD " + tracker_mod.hex2(play_order) + " ROW " + tracker_mod.hex2(play_row), 3, 0)
+        else
+            scr.put_text(680, 33, "ORD " + tracker_mod.hex2(play_order) + " ROW " + tracker_mod.hex2(play_row), 2, 0)
+        <-
+    scr.put_text(16, 33, "BPM " + str(bpm), 1, 0)
+    scr.put_text(88, 33, "OCT " + tracker_mod.hex1(octave), 1, 0)
+    scr.put_text(152, 33, "VOL " + tracker_mod.hex1(master), 1, 0)
+    scr.put_text(216, 33, "PAG " + tracker_mod.hex1(page + 1) + "/" + tracker_mod.hex1(PAGE_COUNT), 1, 0)
+    scr.put_text(296, 33, "FLT " + tracker_mod.hex3(cutoff), 1, 0)
+    scr.put_text(376, 33, "RES " + tracker_mod.hex1(resonance), 1, 0)
+    scr.put_text(432, 33, "MOD " + tracker_mod.hex1(filter_mode), 1, 0)
+    if playing
+        scr.put_text(504, 33, ">>", 3, 0)
+    else
+        scr.put_text(504, 33, "--", 2, 0)
+;
+
+: draw_pattern_map(scr = vimana.screen) (( -- ))
+    for (let ?i = 0; i < 256; i += 1)
+        let x = MAP_X + (i % MAP_COLS) * MAP_CELL_W
+        let y = MAP_Y + stdr.floor(i / MAP_COLS) * MAP_CELL_H
+        let row_start = stdr.floor(i / MAP_COLS) * MAP_COLS
+        let ?row_has_data = false
+        if song_loaded
+            for (let ?j = 0; j < MAP_COLS; j += 1)
+                let k = row_start + j
+                if k < song_length && k < MAX_ORDERS && song_orders[k] != 0
+                    row_has_data = true
+        let ?pat = 0
+        let ?col = 2
+        if song_loaded && i < song_length
+            if i < MAX_ORDERS
+                pat = song_orders[i]
+            col = 1
+        if song_loaded && i == play_order
+            col = 3
+        if !row_has_data && i % (MAP_COLS * 4) < MAP_COLS
+            if i % MAP_COLS == 0
+                tracker_draw.tiny_marker(scr, x, y, col)
+            else
+                tracker_draw.tiny_dash2(scr, x, y, col)
+        elif pat == 0
+            tracker_draw.tiny_dash2(scr, x, y, col)
+        else
+            tracker_draw.tiny_hex2(scr, x, y, pat, col)
+;
+
+: scope_volume(track = num) (( num ))
+    if song_loaded && track < MOD_CHANNELS
+        <- ch_volume[track]
+    if track >= TRACKS
+        <- 0
+    let step = cursor_step
+    if playing
+        step = play_step
+    let k = idx(step, track)
+    if k >= 0 && k < stdr.len(vols)
+        <- vols[k]
+    <- 0
+;
+
+: scope_period(track = num) (( num ))
+    if song_loaded && track < MOD_CHANNELS
+        <- ch_period[track]
+    <- 0
+;
+
+: draw_scope(scr = vimana.screen, track = num, x = num) (( -- ))
+    let w = CELL_W - 10
+    let y = SCOPE_Y
+    let mid = y + stdr.floor(SCOPE_H / 2)
+    let vol = scope_volume(track)
+    let period = scope_period(track)
+    tracker_draw.box(scr, x - 4, y - 1, w, SCOPE_H + 2, 2)
+    if vol <= 0
+        <-
+    let ?max_vol = 15
+    if song_loaded && track < MOD_CHANNELS
+        max_vol = 64
+    let ?amp = stdr.floor((vol * (stdr.floor(SCOPE_H / 2) - 3)) / max_vol)
+    if amp < 1
+        amp = 1
+    let ?prev_x = x
+    let ?prev_y = mid
+    for (let ?i = 0; i < SCOPE_COLS; i += 1)
+        let px = x + stdr.floor((i * (w - 8)) / SCOPE_COLS)
+        let ?shape = (i * 5 + scope_tick * (track + 1)) % 16
+        if period > 0
+            shape = (shape + stdr.floor(4096 / period)) % 16
+        let py = mid + stdr.floor(((shape - 8) * amp) / 8)
+        if i > 0
+            tracker_draw.line(scr, prev_x, prev_y, px, py, 3)
+        tracker_draw.fill(scr, px, py, 2, 2, 3)
+        prev_x = px
+        prev_y = py
+;
+
+: draw(scr = vimana.screen) (( -- ))
+    if playing
+        page = stdr.floor(play_step / PAGE_STEPS)
+        scope_tick += 1
+    scr.clear(0)
+    draw_header(scr)
+    draw_file_buttons(scr)
+
+    if show_help
+        scr.put_text(16, 56, "LDUR move SPC play RET hit BKSP rest S+O/S files", 2, 0)
+        scr.put_text(16, 378, "Z-M notes {} page [] octave -+ bpm 1-5 wave QWERF filter", 2, 0)
+
+    for (let ?t = 0; t < TRACKS; t += 1)
+        let x = GRID_X + t * CELL_W
+        scr.put_text(x, SCOPE_Y - FONT_H, "CH" + tracker_mod.hex1(t + 1) + " - " + channel_type(t), 3, 0)
+        draw_scope(scr, t, x)
+
+    draw_pattern_map(scr)
+
+    let ?p_start = page_start()
+    let ?p_end = page_end()
+    let ?first_step = p_start
+    if playing
+        p_start = page_start()
+        p_end = page_end()
+        first_step = play_step - 8
+    else
+        first_step = cursor_step - 8
+    if first_step < p_start
+        first_step = p_start
+    if first_step > p_end - VISIBLE_STEPS
+        first_step = p_end - VISIBLE_STEPS
+
+    for (let ?row = 0; row < VISIBLE_STEPS; row += 1)
+        let s = first_step + row
+        let y = GRID_Y + row * ROW_H
+        let row_col = 1
+        if s == play_step && playing
+            row_col = 3
+            tracker_draw.fill(scr, GRID_X, y - 1, TRACKS * CELL_W - 8, ROW_H, 3)
+        scr.put_text(GRID_X - 42, y, "00" + tracker_mod.hex2(s - p_start), row_col, 0)
+        for (let ?t = 0; t < TRACKS; t += 1)
+            let x = GRID_X + t * CELL_W
+            let ?fg = 1
+            let ?bg = 0
+            if s == cursor_step && t == cursor_track
+                fg = 0
+                bg = 3
+                tracker_draw.fill(scr, x - 4, y - 1, CELL_W - 8, ROW_H, 3)
+            elif s == play_step && playing
+                fg = 0
+                bg = 3
+            scr.put_text(x, y, song_step_text(s, t), fg, bg)
+;
+
+: setup_audio(sys = vimana.system) (( -- ))
+    sys.begin_audio()
+    sys.set_master_volume(master)
+    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
+        sys.stop_voice(ch)
+        sys.set_envelope(ch, 0, 4, 8, 3)
+        sys.set_filter_route(ch, 0)
+    for (let ?t = 0; t < TRACKS; t += 1)
+        sys.set_voice(t, waves[t])
+        sys.set_filter_route(t, 1)
+    sys.set_pulse_width(2, 96)
+    sys.set_filter(cutoff, resonance, filter_mode)
+    sys.end_audio()
+;
+
+: stop_all(sys = vimana.system) (( -- ))
+    sys.begin_audio()
+    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
+        sys.stop_voice(ch)
+    sys.end_audio()
+;
+
+: song_setup(sys = vimana.system) (( -- ))
+    -- Sustained envelope so notes hold flat across volume slides; brief
+    -- release so stop_voice between rows doesn't click.
+    sys.begin_audio()
+    sys.set_master_volume(master)
+    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
+        sys.stop_voice(ch)
+        sys.set_envelope(ch, 0, 0, 15, 1)
+        sys.set_filter_route(ch, 0)
+    sys.set_pulse_width(2, 96)
+    sys.set_filter(cutoff, resonance, filter_mode)
+    sys.end_audio()
+    play_order = 0
+    play_row = 0
+    play_tick = 0
+    play_speed = 6
+    play_tempo = 125
+    bpm = play_tempo
+    play_break_row = -1
+    play_jump_order = -1
+    for (let ?ch = 0; ch < TRACKS; ch += 1)
+        ch_period[ch] = 0
+        ch_volume[ch] = 0
+        ch_sample[ch] = 0
+        ch_vslide_up[ch] = 0
+        ch_vslide_down[ch] = 0
+        ch_pslide_up[ch] = 0
+        ch_pslide_down[ch] = 0
+        ch_arp_x[ch] = 0
+        ch_arp_y[ch] = 0
+        ch_porta_target[ch] = 0
+        ch_porta_speed[ch] = 0
+        ch_vibrato_pos[ch] = 0
+        ch_vibrato_speed[ch] = 0
+        ch_vibrato_depth[ch] = 0
+        ch_tremolo_pos[ch] = 0
+        ch_tremolo_speed[ch] = 0
+        ch_tremolo_depth[ch] = 0
+        ch_note_cut[ch] = -1
+        ch_retrigger[ch] = 0
+;
+
+: trigger_step(sys = vimana.system, step = num) (( -- ))
+    sys.begin_audio()
+    for (let ?t = 0; t < TRACKS; t += 1)
+        let k = idx(step, t)
+        let n = notes[k]
+        if n >= 0 && vols[k] > 0
+            sys.set_voice(t, waves[t])
+            sys.play_voice(t, n, vols[k])
+        elif n == NOTE_REST
+            sys.stop_voice(t)
+    sys.set_master_volume(master)
+    sys.set_filter(cutoff, resonance, filter_mode)
+    sys.end_audio()
+;
+
+: set_note(sys = vimana.system, semi = num) (( -- ))
+    let k = idx(cursor_step, cursor_track)
+    notes[k] = octave * 12 + semi
+    if vols[k] <= 0
+        vols[k] = 12
+    sys.begin_audio()
+    sys.set_voice(cursor_track, waves[cursor_track])
+    sys.play_voice(cursor_track, notes[k], vols[k])
+    sys.end_audio()
+    dirty = true
+;
+
+: rest_at_cursor(sys = vimana.system) (( -- ))
+    let k = idx(cursor_step, cursor_track)
+    notes[k] = NOTE_REST
+    vols[k] = 0
+    sys.stop_voice(cursor_track)
+    dirty = true
+;
+
+: semitone_for_key(ch = string) (( num ))
+    if ch == "z" || ch == "Z"
+        <- 0
+    if ch == "s" || ch == "S"
+        <- 1
+    if ch == "x" || ch == "X"
+        <- 2
+    if ch == "d" || ch == "D"
+        <- 3
+    if ch == "c" || ch == "C"
+        <- 4
+    if ch == "v" || ch == "V"
+        <- 5
+    if ch == "g" || ch == "G"
+        <- 6
+    if ch == "b" || ch == "B"
+        <- 7
+    if ch == "h" || ch == "H"
+        <- 8
+    if ch == "n" || ch == "N"
+        <- 9
+    if ch == "j" || ch == "J"
+        <- 10
+    if ch == "m" || ch == "M"
+        <- 11
+    <- -1
+;
+
+: handle_keys(sys = vimana.system, dev = vimana.device, fsys = vimana.file) (( -- ))
+    let help_now = dev.key_down(KEY_H)
+    if help_now != show_help
+        show_help = help_now
+        dirty = true
+
+    let cmd = dev.key_down(KEY_LGUI) || dev.key_down(KEY_RGUI)
+    if cmd
+        if dev.key_pressed(KEY_O)
+            open_file(fsys, sys)
+            <-
+        if dev.key_pressed(KEY_S)
+            let shift = dev.key_down(KEY_LSHIFT) || dev.key_down(KEY_RSHIFT)
+            if shift
+                save_file_as(fsys)
+            else
+                save_file(fsys)
+            <-
+
+    if dev.key_pressed(KEY_ESCAPE)
+        playing = false
+        stop_all(sys)
+        dirty = true
+    if dev.key_pressed(KEY_SPACE)
+        playing = !playing
+        if playing
+            if song_loaded
+                song_setup(sys)
+                play_step = 0
+                last_tick = sys.ticks() - 2500 / play_tempo
+            else
+                play_step = cursor_step
+                last_tick = sys.ticks()
+                trigger_step(sys, play_step)
+        else
+            stop_all(sys)
+        dirty = true
+    if dev.key_pressed(KEY_RETURN)
+        trigger_step(sys, cursor_step)
+        dirty = true
+    if dev.key_pressed(KEY_BACKSPACE)
+        rest_at_cursor(sys)
+
+    if dev.key_pressed(KEY_RIGHT)
+        cursor_track += 1
+        dirty = true
+    if dev.key_pressed(KEY_LEFT)
+        cursor_track -= 1
+        dirty = true
+    if dev.key_pressed(KEY_DOWN)
+        cursor_step += 1
+        dirty = true
+    if dev.key_pressed(KEY_UP)
+        cursor_step -= 1
+        dirty = true
+    clamp_cursor()
+
+    if dev.key_pressed(KEY_LBRACKET) && octave > 1
+        octave -= 1
+        dirty = true
+    if dev.key_pressed(KEY_RBRACKET) && octave < 8
+        octave += 1
+        dirty = true
+    if dev.key_pressed(KEY_PAGEUP)
+        set_page(page - 1)
+    if dev.key_pressed(KEY_PAGEDOWN)
+        set_page(page + 1)
+    if dev.key_pressed(KEY_MINUS) && bpm > 40
+        bpm -= 4
+        dirty = true
+    if dev.key_pressed(KEY_EQUALS) && bpm < 280
+        bpm += 4
+        dirty = true
+    if dev.key_pressed(KEY_COMMA) && master > 0
+        master -= 1
+        dirty = true
+    if dev.key_pressed(KEY_PERIOD) && master < 15
+        master += 1
+        dirty = true
+    if dev.key_pressed(KEY_Q) && cutoff > 80
+        cutoff -= 80
+        dirty = true
+    if dev.key_pressed(KEY_W) && cutoff < 1960
+        cutoff += 80
+        dirty = true
+    if dev.key_pressed(KEY_E) && resonance > 0
+        resonance -= 1
+        dirty = true
+    if dev.key_pressed(KEY_R) && resonance < 15
+        resonance += 1
+        dirty = true
+    if dev.key_pressed(KEY_F)
+        filter_mode += 1
+        if filter_mode > 4
+            filter_mode = 1
+        dirty = true
+
+    if dev.key_pressed(KEY_1)
+        waves[cursor_track] = vimana.wave_triangle
+        dirty = true
+    if dev.key_pressed(KEY_2)
+        waves[cursor_track] = vimana.wave_sawtooth
+        dirty = true
+    if dev.key_pressed(KEY_3)
+        waves[cursor_track] = vimana.wave_pulse
+        dirty = true
+    if dev.key_pressed(KEY_4)
+        waves[cursor_track] = vimana.wave_noise
+        dirty = true
+    if dev.key_pressed(KEY_5)
+        waves[cursor_track] = vimana.wave_psg
+        dirty = true
+
+    let txt = dev.text_input()
+    if stdr.len(txt) > 0
+        let semi = semitone_for_key(stdr.char_at(txt, 0))
+        if semi >= 0
+            set_note(sys, semi)
+            cursor_step += 1
+            clamp_cursor()
+            dirty = true
+;
+
+: handle_mouse(sys = vimana.system, dev = vimana.device, fsys = vimana.file) (( -- ))
+    let new_hover = hovered_file_btn(dev)
+    if new_hover != file_btn_hover
+        file_btn_hover = new_hover
+        dirty = true
+    if !dev.mouse_pressed(vimana.mouse_left)
+        <-
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    if file_btn_hover == 0
+        new_file(sys)
+        <-
+    if file_btn_hover == 1
+        open_file(fsys, sys)
+        <-
+    if file_btn_hover == 2
+        save_file(fsys)
+        <-
+    if mx >= GRID_X && mx < GRID_X + TRACKS * CELL_W && my >= GRID_Y && my < GRID_Y + VISIBLE_STEPS * ROW_H
+        let ?p_start = page_start()
+        let ?p_end = page_end()
+        let ?first_step = p_start
+        if playing
+            page = stdr.floor(play_step / PAGE_STEPS)
+            p_start = page_start()
+            p_end = page_end()
+            first_step = play_step - 8
+        else
+            first_step = cursor_step - 8
+        if first_step < p_start
+            first_step = p_start
+        if first_step > p_end - VISIBLE_STEPS
+            first_step = p_end - VISIBLE_STEPS
+        cursor_track = stdr.floor((mx - GRID_X) / CELL_W)
+        cursor_step = first_step + stdr.floor((my - GRID_Y) / ROW_H)
+        clamp_cursor()
+        trigger_step(sys, cursor_step)
+        dirty = true
+;
+
+def CURSOR_CHR = [
+    0x0000, 0x0000, 0x0814, 0x1417, 0x0000, 0x0000, 0x0008, 0x0808,
+    0x0000, 0x0000, 0x0000, 0x00c0, 0x0000, 0x0000, 0x0000, 0x0000,
+    0x1010, 0x2010, 0x1008, 0x0700, 0x0f0f, 0x1f0f, 0x0f07, 0x0000,
+    0x2010, 0x1010, 0x2020, 0xc000, 0xc0e0, 0xe0e0, 0xc0c0, 0x0000
+]
+def BG_CHR = [
+    0x0000, 0x00ff, 0x00ff, 0x00ff, 0xffff, 0xff00, 0xff00, 0xff00,
+    0x00ff, 0x00ff, 0x00ff, 0x0000, 0xff00, 0xff00, 0xff00, 0xffff,
+    0xff00, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000
+]
+def CLOSE_ICN = [
+    0x0000, 0x007f, 0x4040, 0x4040, 0x4040, 0x4040, 0x407f, 0x0000,
+    0x0000, 0x00f7, 0x1017, 0x1017, 0x1017, 0x1017, 0x10f7, 0x0000
+]
+def CLOSE_DOWN_ICN = [
+    0x0000, 0x007f, 0x4252, 0x4a40, 0x7840, 0x4a52, 0x427f, 0x0000,
+    0x0000, 0x00f7, 0x1057, 0x9017, 0xf017, 0x9057, 0x10f7, 0x0000
+]
+
+def CURSOR_ADDR = 0x7E0
+def CLOSE_ADDR = 0x8E0
+def CLOSE_DOWN_ADDR = 0x9E0
+def BG_ADDR = 0xAE0
+def TITLEBAR_H = 17
+def TITLEBAR_SHADE_H = 17
+def TITLEBAR_EDGE_Y = 14
+def HEADER_DBLCLICK_MS = 400
+def HEADER_DBLCLICK_DIST = 8
+def ?close_button_active = false
+def ?titlebar_capture = false
+def ?titlebar_shaded = false
+def ?titlebar_saved_height = 0
+def ?header_click_time = 0
+def ?header_click_x = 0
+def ?header_click_y = 0
+def ?last_mx = -1
+def ?last_my = -1
+def ?last_close_button_state = false
+def ?last_titlebar_shaded = false
+
+: redraw_titlebar_span(scr = vimana.screen, x = num, w = num) (( -- ))
+    if w <= 0
+        <-
+    let tiles = stdr.floor((w + 7) / 8)
+    scr.set_auto(0x15).set_addr(BG_ADDR).set_x(x).set_y(0)
+    for (let ?i = 0; i < tiles; i += 1)
+        scr.sprite(0x85)
+;
+
+: draw_titlebar_decor(scr = vimana.screen) (( -- ))
+    scr.set_auto(0x00).set_x(scr.width() - 1).set_y(TITLEBAR_EDGE_Y)
+    scr.pixel(0xa2)
+    scr.set_x(1)
+    scr.pixel(0xb2)
+;
+
+: toggle_titlebar_shade(scr = vimana.screen) (( -- ))
+    if titlebar_shaded
+        titlebar_shaded = false
+        <-
+    titlebar_shaded = true
+;
+
+: draw_titlebar_text(scr = vimana.screen, title = string) (( -- ))
+    let ?max_chars = stdr.floor((scr.width() - 48) / 8) - 2
+    if max_chars <= 0
+        <-
+    let ?body = title
+    if stdr.len(body) > max_chars
+        if max_chars > 3
+            body = stdr.slice(body, 0, max_chars - 3) + "..."
+        else
+            body = stdr.slice(body, 0, max_chars)
+    let label = " " + body + " "
+    let ?tx = stdr.floor((scr.width() - stdr.len(label) * 8) / 2)
+    if tx < 24
+        tx = 24
+    redraw_titlebar_span(scr, tx, stdr.len(label) * 8)
+    scr.put_text(tx, 1, label, vimana.color_fg, 2)
+;
+
+: in_close_button(dev = vimana.device) (( bool ))
+    <- dev.pointer_x() >= 8 && dev.pointer_x() < 24 && dev.pointer_y() >= 0 && dev.pointer_y() < 16
+;
+
+: in_titlebar(dev = vimana.device) (( bool ))
+    <- dev.pointer_y() >= 0 && dev.pointer_y() < TITLEBAR_H
+;
+
+: update_close_button(dev = vimana.device, sys = vimana.system) (( -- ))
+    let hover = in_close_button(dev)
+    if dev.mouse_pressed(vimana.mouse_left) && hover
+        close_button_active = true
+        <-
+    if !dev.mouse_down(vimana.mouse_left)
+        if close_button_active && hover
+            sys.quit()
+        close_button_active = false
+;
+
+: update_titlebar(dev = vimana.device, sys = vimana.system, scr = vimana.screen) (( bool ))
+    if !titlebar_shaded && scr.height() > TITLEBAR_SHADE_H
+        titlebar_saved_height = scr.height()
+    let hover = in_titlebar(dev)
+    if dev.mouse_pressed(vimana.mouse_left) && hover
+        titlebar_capture = true
+        if !in_close_button(dev)
+            let now = sys.ticks()
+            let dx = dev.pointer_x() - header_click_x
+            let dy = dev.pointer_y() - header_click_y
+            let dist = dx * dx + dy * dy
+            if now - header_click_time < HEADER_DBLCLICK_MS && dist < HEADER_DBLCLICK_DIST * HEADER_DBLCLICK_DIST
+                toggle_titlebar_shade(scr)
+                header_click_time = 0
+            else
+                header_click_time = now
+                header_click_x = dev.pointer_x()
+                header_click_y = dev.pointer_y()
+    elif !dev.mouse_down(vimana.mouse_left)
+        titlebar_capture = false
+    update_close_button(dev, sys)
+    <- titlebar_capture || (hover && !dev.mouse_down(vimana.mouse_left))
+;
+
+: draw_close_button(scr = vimana.screen) (( -- ))
+    let ?addr = CLOSE_ADDR
+    if close_button_active
+        addr = CLOSE_DOWN_ADDR
+    scr.set_auto(0x15).set_addr(addr).set_x(8).set_y(0)
+    scr.sprite(0x09)
+    scr.set_addr(addr).set_x(13).sprite(0x19)
+;
+
+-> ()
+    let sys = vimana.system()
+    let scr = vimana.screen("Tracker", SCREEN_W, SCREEN_H, SCALE)
+    scr.set_cursor(CURSOR_CHR)
+    scr.hide_cursor()
+    let dev = sys.device()
+    let fsys = sys.file()
+    tracker_font.install(scr)
+    -- Upload titlebar sprites AFTER font to avoid overlap
+    scr.set_sprite(CURSOR_ADDR, CURSOR_CHR, 1)
+    scr.set_sprite(BG_ADDR, BG_CHR, 1)
+    scr.set_sprite(CLOSE_ADDR, CLOSE_ICN, 1)
+    scr.set_sprite(CLOSE_DOWN_ADDR, CLOSE_DOWN_ICN, 1)
+    scr.set_drag_region(16)
+    titlebar_saved_height = scr.height()
+    bpm = tracker_demo.seed(notes, vols, waves)
+    ensure_editor_arrays()
+    song_alloc()
+    setup_audio(sys)
+    let args = stdr.args()
+    for (let ?i = 0; i < len(args); i += 1)
+        let path = str(args[i] ?? "")
+        if load_mod_path(fsys, sys, path)
+            i = len(args)
+
+    sys.run(scr, () => {
+        dev.poll()
+        let mx = dev.pointer_x()
+        let my = dev.pointer_y()
+
+        let titlebar_busy = update_titlebar(dev, sys, scr)
+        if !titlebar_shaded
+            if !titlebar_busy
+                handle_mouse(sys, dev, fsys)
+            handle_keys(sys, dev, fsys)
+
+        if playing && !titlebar_shaded
+            if song_loaded
+                let now = sys.ticks()
+                let ?tick_ms = 2500 / play_tempo
+
+                if tick_ms < 1
+                    tick_ms = 1
+
+                if now - last_tick >= tick_ms
+                    last_tick += tick_ms
+
+                    -- If the program fell too far behind, drop timing debt
+                    -- instead of batching many immediate audio commands later.
+                    if now - last_tick >= tick_ms * 4
+                        last_tick = now
+
+                    sys.begin_audio()
+
+                    if play_tick == 0
+                        song_process_row(sys)
+                    else
+                        song_apply_continuous(sys)
+
+                    sys.end_audio()
+
+                    play_tick += 1
+
+                    if play_tick >= play_speed
+                        play_tick = 0
+                        song_advance_row()
+
+                    play_step = (play_order * 64 + play_row) % STEPS
+                dirty = true
+            else
+                let now = sys.ticks()
+                let step_ms = stdr.floor(60000 / bpm / 12)
+                if now - last_tick >= step_ms
+                    last_tick = now
+                    play_step = (play_step + 1) % STEPS
+                    trigger_step(sys, play_step)
+                    dirty = true
+
+        let cursor_dirty = mx != last_mx || my != last_my
+        let full_redraw = dirty || cursor_dirty || close_button_active != last_close_button_state || titlebar_shaded != last_titlebar_shaded
+
+        if full_redraw
+            last_close_button_state = close_button_active
+            last_titlebar_shaded = titlebar_shaded
+            if !titlebar_shaded
+                draw(scr)
+            else
+                scr.clear(0)
+            -- Draw titlebar BG
+            scr.set_auto(0x15).set_x(0).set_y(0)
+            for (let ?i = 0; i < scr.width() / 8; i += 1)
+                scr.set_addr(BG_ADDR).sprite(0x85)
+            draw_titlebar_decor(scr)
+            draw_titlebar_text(scr, "Tracker")
+            draw_close_button(scr)
+            scr.set_auto(0x00)
+            dirty = false
+
+        if full_redraw || cursor_dirty
+            last_mx = mx
+            last_my = my
+            scr.set_auto(0x16).set_addr(CURSOR_ADDR).set_x(mx).set_y(my).sprite(0x85)
+            scr.set_auto(0x16).set_addr(CURSOR_ADDR + 0x20).set_x(mx).set_y(my+8).sprite(0x85)
+            scr.set_auto(0x00)
+
+        scr.present()
+    })
+    stop_all(sys)
+;

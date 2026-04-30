@@ -53,6 +53,10 @@ def wave_pulse = 2
 def wave_noise = 3
 def wave_psg = 4
 def voice_count = 8
+def paula_channels = 4
+def sample_count = 32
+def paula_clock = 3546895
+def paula_volume_max = 64
 
 def filter_lp = 1
 def filter_bp = 2
@@ -79,6 +83,8 @@ def paddle_count = 2
 : __vimana_system_set_envelope(sys = system, channel = num, attack = num, decay = num, sustain = num, release = num) (( -- )) { }
 : __vimana_system_set_pulse_width(sys = system, channel = num, width = num) (( -- )) { }
 : __vimana_system_play_voice(sys = system, channel = num, pitch = num, volume = num) (( -- )) { }
+: __vimana_system_set_sample(sys = system, slot = num, data = any, loop_start = num, loop_len = num) (( -- )) { }
+: __vimana_system_play_sample(sys = system, channel = num, slot = num, period = num, volume = num) (( -- )) { }
 : __vimana_system_stop_voice(sys = system, channel = num) (( -- )) { }
 : __vimana_system_set_voice_volume(sys = system, channel = num, volume = num) (( -- )) { }
 : __vimana_system_set_frequency(sys = system, channel = num, freq16 = num) (( -- )) { }
@@ -255,6 +261,14 @@ pub ,: system
     ;
     :: play_voice(this, channel = num, pitch = num, volume = num) (( system ))
         __vimana_system_play_voice(this, channel, pitch, volume)
+        <- this
+    ;
+    :: set_sample(this, slot = num, data = any, loop_start = num, loop_len = num) (( system ))
+        __vimana_system_set_sample(this, slot, data, loop_start, loop_len)
+        <- this
+    ;
+    :: play_sample(this, channel = num, slot = num, period = num, volume = num) (( system ))
+        __vimana_system_play_sample(this, channel, slot, period, volume)
         <- this
     ;
     :: stop_voice(this, channel = num) (( system ))

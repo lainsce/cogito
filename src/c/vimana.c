@@ -71,8 +71,24 @@ static const float vimana_decrel_table[16] = {
 #define VIMANA_CONSOLE_CAP 256
 
 typedef struct {
+  int8_t *data;
+  size_t len;
+  int loop_start;
+  int loop_len;
+} VimanaSample;
+
+typedef struct {
   float    phase;        /* oscillator phase [0.0, 1.0) */
   float    prev_phase;   /* phase from previous sample (for sync detection) */
+  float    sample_pos;   /* PCM sample cursor */
+  const int8_t *sample_data;
+  size_t   sample_len;
+  int      sample_loop_start;
+  int      sample_loop_len;
+  int      sample_slot;
+  int      sample_fade_pos;
+  int      sample_fade_len;
+  bool     sample_mode;
   float    freq_hz;      /* current frequency (derived from freq_reg) */
   uint16_t freq_reg;     /* 16-bit frequency register (SID-style) */
   float    amp;          /* target amplitude (volume) */
@@ -125,6 +141,7 @@ struct VimanaSystem {
   SDL_AudioStream *audio_stream;
   int audio_sample_rate;
   VimanaVoice voices[VIMANA_VOICE_COUNT];
+  VimanaSample samples[VIMANA_SAMPLE_COUNT];
   VimanaFilter filter;
   int master_volume;       /* 0–15, default 15 */
   uint8_t paddle[VIMANA_PADDLE_COUNT]; /* 2 × 8-bit A/D converters */
@@ -165,6 +182,12 @@ static float vimana_freq_reg_to_hz(uint16_t freq_reg) {
   return (float)freq_reg * (float)VIMANA_AUDIO_CLOCK / 16777216.0f;
 }
 
+static float vimana_period_to_hz(int period) {
+  if (period < 1)
+    return 0.0f;
+  return (float)VIMANA_CLOCK / (float)period;
+}
+
 /* ── Per-voice waveform generation ──────────────────────────────────── */
 
 /* SID-style waveform amplitude normalization.
@@ -194,6 +217,46 @@ static inline float vimana_triangle_from_phase(float p) {
 }
 
 static inline float vimana_voice_sample(VimanaVoice *v, int sr) {
+  if (v->sample_mode) {
+    if (!v->sample_data || v->sample_len == 0)
+      return 0.0f;
+    if (v->sample_pos < 0.0f)
+      v->sample_pos = 0.0f;
+    int idx = (int)v->sample_pos;
+    if (idx >= (int)v->sample_len) {
+      if (v->sample_loop_len > 2) {
+        v->sample_pos = (float)v->sample_loop_start;
+        idx = v->sample_loop_start;
+      } else {
+        v->gate = false;
+        v->env_stage = VIMANA_ENV_OFF;
+        return 0.0f;
+      }
+    }
+    int next = idx + 1;
+    int loop_end = v->sample_loop_start + v->sample_loop_len;
+    if (v->sample_loop_len > 2 && next >= loop_end)
+      next = v->sample_loop_start;
+    if (next >= (int)v->sample_len)
+      next = idx;
+    float frac = v->sample_pos - (float)idx;
+    float a = (float)v->sample_data[idx] / 128.0f;
+    float b = (float)v->sample_data[next] / 128.0f;
+    float s = a + (b - a) * frac;
+    if (v->sample_fade_pos < v->sample_fade_len) {
+      float fade = (float)v->sample_fade_pos / (float)v->sample_fade_len;
+      s *= fade;
+      v->sample_fade_pos++;
+    }
+    float step = (sr > 0) ? (v->freq_hz / (float)sr) : 0.0f;
+    v->sample_pos += step;
+    if (v->sample_loop_len > 2 && v->sample_pos >= (float)loop_end)
+      v->sample_pos = (float)v->sample_loop_start +
+                      fmodf(v->sample_pos - (float)v->sample_loop_start,
+                            (float)v->sample_loop_len);
+    return s;
+  }
+
   float p = v->phase;
   float s;
   switch (v->waveform) {
@@ -343,6 +406,8 @@ static void SDLCALL vimana_audio_stream_cb(void *userdata,
     for (int ch = 0; ch < VIMANA_VOICE_COUNT; ch++) {
       VimanaVoice *v = &system->voices[ch];
       v->prev_phase = v->phase;
+      if (v->sample_mode)
+        continue;
       float step = (sr > 0) ? (v->freq_hz / (float)sr) : 0.0f;
       v->phase += step;
       if (v->phase >= 1.0f)
@@ -1573,6 +1638,7 @@ void vimana_system_set_voice(vimana_system *system, int channel,
   if (waveform < 0 || waveform > VIMANA_WAVE_PSG)
     waveform = VIMANA_WAVE_PULSE;
   vimana_audio_lock(system);
+  system->voices[channel].sample_mode = false;
   system->voices[channel].waveform = waveform;
   vimana_audio_unlock(system);
 }
@@ -1625,6 +1691,7 @@ void vimana_system_play_voice(vimana_system *system, int channel,
 
   vimana_audio_lock(system);
   VimanaVoice *v = &system->voices[channel];
+  v->sample_mode = false;
   v->freq_reg = freg;
   v->freq_hz = vimana_freq_reg_to_hz(freg);
   v->amp = amp;
@@ -1641,17 +1708,108 @@ void vimana_system_play_voice(vimana_system *system, int channel,
     system->audio_needs_resume = true;
 }
 
+void vimana_system_set_sample(vimana_system *system, int slot,
+                              const uint8_t *data, size_t len,
+                              int loop_start, int loop_len) {
+  if (!system || slot < 0 || slot >= VIMANA_SAMPLE_COUNT)
+    return;
+  if (loop_start < 0)
+    loop_start = 0;
+  if (loop_len < 0)
+    loop_len = 0;
+  int8_t *copy = NULL;
+  if (data && len > 0) {
+    copy = (int8_t *)malloc(len);
+    if (!copy)
+      return;
+    for (size_t i = 0; i < len; i++)
+      copy[i] = (int8_t)data[i];
+  }
+  if (!vimana_system_ensure_audio(system)) {
+    free(copy);
+    return;
+  }
+  vimana_audio_lock(system);
+  VimanaSample *s = &system->samples[slot];
+  free(s->data);
+  s->data = copy;
+  s->len = len;
+  s->loop_start = loop_start;
+  s->loop_len = (loop_start + loop_len <= (int)len) ? loop_len : 0;
+  for (int ch = 0; ch < VIMANA_VOICE_COUNT; ch++) {
+    VimanaVoice *v = &system->voices[ch];
+    if (v->sample_mode && v->sample_slot == slot) {
+      v->sample_mode = false;
+      v->env_stage = VIMANA_ENV_OFF;
+    }
+  }
+  vimana_audio_unlock(system);
+}
+
+void vimana_system_play_sample(vimana_system *system, int channel,
+                               int slot, int period, int volume) {
+  if (!vimana_system_ensure_audio(system))
+    return;
+  if (channel < 0 || channel >= VIMANA_CHANNELS ||
+      slot < 0 || slot >= VIMANA_SAMPLE_COUNT)
+    return;
+  if (volume < 0)
+    volume = 0;
+  else if (volume > VIMANA_VOLUME_MAX)
+    volume = VIMANA_VOLUME_MAX;
+  if (period < 1) period = 1;
+  vimana_audio_lock(system);
+  VimanaSample *s = &system->samples[slot];
+  if (!s->data || s->len == 0) {
+    vimana_audio_unlock(system);
+    return;
+  }
+  VimanaVoice *v = &system->voices[channel];
+  v->sample_mode = true;
+  v->sample_slot = slot;
+  v->sample_data = s->data;
+  v->sample_len = s->len;
+  v->sample_loop_start = s->loop_start;
+  v->sample_loop_len = s->loop_len;
+  v->sample_pos = 0.0f;
+  v->sample_fade_pos = 0;
+  v->sample_fade_len = 0;
+  v->freq_reg = 0;
+  v->freq_hz = vimana_period_to_hz(period);
+  v->amp = ((float)volume / (float)VIMANA_VOLUME_MAX) * 0.5f;
+  v->gate = true;
+  v->env_stage = VIMANA_ENV_SUSTAIN;
+  v->env_level = 1.0f;
+  v->samples_left = 0;
+  v->age = ++system->voice_clock;
+  vimana_audio_unlock(system);
+  if (!system->audio_locked)
+    (void)SDL_ResumeAudioStreamDevice(system->audio_stream);
+  else
+    system->audio_needs_resume = true;
+}
+
 void vimana_system_set_voice_volume(vimana_system *system, int channel,
                                     int volume) {
   if (!vimana_system_ensure_audio(system))
     return;
   if (channel < 0 || channel >= VIMANA_VOICE_COUNT)
     return;
-  if (volume < 0) volume = 0; else if (volume > 15) volume = 15;
+  if (volume < 0)
+    volume = 0;
   vimana_audio_lock(system);
   /* Update amp without retriggering envelope or resetting phase — used for
      volume slides where the note must keep ringing smoothly. */
-  system->voices[channel].amp = ((float)volume / 15.0f) * 0.25f;
+  if (system->voices[channel].sample_mode) {
+    if (volume > VIMANA_VOLUME_MAX)
+      volume = VIMANA_VOLUME_MAX;
+    system->voices[channel].amp =
+        ((float)volume / (float)VIMANA_VOLUME_MAX) * 0.5f;
+  } else {
+    if (volume > 15)
+      volume = 15;
+    system->voices[channel].amp = ((float)volume / 15.0f) * 0.25f;
+  }
   vimana_audio_unlock(system);
 }
 
@@ -1675,11 +1833,19 @@ void vimana_system_set_frequency(vimana_system *system, int channel,
     return;
   if (channel < 0 || channel >= VIMANA_VOICE_COUNT)
     return;
-  if (freq16 < 0) freq16 = 0; else if (freq16 > 65535) freq16 = 65535;
+  if (freq16 < 0)
+    freq16 = 0;
+  else if (freq16 > 65535)
+    freq16 = 65535;
   vimana_audio_lock(system);
   VimanaVoice *v = &system->voices[channel];
-  v->freq_reg = (uint16_t)freq16;
-  v->freq_hz = vimana_freq_reg_to_hz(v->freq_reg);
+  if (v->sample_mode) {
+    v->freq_reg = 0;
+    v->freq_hz = vimana_period_to_hz(freq16);
+  } else {
+    v->freq_reg = (uint16_t)freq16;
+    v->freq_hz = vimana_freq_reg_to_hz(v->freq_reg);
+  }
   vimana_audio_unlock(system);
 }
 
@@ -1813,6 +1979,8 @@ void vimana_system_free(vimana_system *system) {
     SDL_PauseAudioStreamDevice(system->audio_stream);
     SDL_DestroyAudioStream(system->audio_stream);
   }
+  for (int i = 0; i < VIMANA_SAMPLE_COUNT; i++)
+    free(system->samples[i].data);
   free(system->mix_buffer);
   free(system);
 }
@@ -1820,10 +1988,14 @@ void vimana_system_free(vimana_system *system) {
 size_t vimana_system_ram_usage(vimana_system *system) {
   if (!system)
     return 0;
+  size_t sample_bytes = 0;
+  for (int i = 0; i < VIMANA_SAMPLE_COUNT; i++)
+    sample_bytes += system->samples[i].len;
   return sizeof(vimana_system) +
          ((system->mix_buffer_cap > 0)
               ? (size_t)system->mix_buffer_cap * sizeof(float)
-              : 0);
+              : 0) +
+         sample_bytes;
 }
 
 /* ── Screen API ─────────────────────────────────────────────────────────── */

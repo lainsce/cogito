@@ -1,0 +1,153 @@
+cask tracker_mod
+
+bring stdr
+bring vimana
+
+def NOTE_HOLD = -1
+def NOTE_REST = -2
+
+:: note_name(n = num) (( string ))
+    if n == NOTE_HOLD
+        <- "---"
+    if n == NOTE_REST
+        <- "OFF"
+    let tone = n % 12
+    let oct = stdr.floor(n / 12)
+    let ?name = "C-"
+    if tone == 1
+        name = "C#"
+    if tone == 2
+        name = "D-"
+    if tone == 3
+        name = "D#"
+    if tone == 4
+        name = "E-"
+    if tone == 5
+        name = "F-"
+    if tone == 6
+        name = "F#"
+    if tone == 7
+        name = "G-"
+    if tone == 8
+        name = "G#"
+    if tone == 9
+        name = "A-"
+    if tone == 10
+        name = "A#"
+    if tone == 11
+        name = "B-"
+    <- name + hex1(oct)
+;
+
+:: hex1(n = num) (( string ))
+    let HEX = "0123456789ABCDEF"
+    <- stdr.char_at(HEX, n % 16)
+;
+
+:: hex2(n = num) (( string ))
+    let HEX = "0123456789ABCDEF"
+    let b = n % 256
+    <- stdr.char_at(HEX, stdr.floor(b / 16)) + stdr.char_at(HEX, b % 16)
+;
+
+:: hex3(n = num) (( string ))
+    let b = n % 4096
+    <- hex1(stdr.floor(b / 256)) + hex2(b % 256)
+;
+
+:: wave_code(w = num) (( num ))
+    if w == vimana.wave_triangle
+        <- 1
+    if w == vimana.wave_sawtooth
+        <- 2
+    if w == vimana.wave_pulse
+        <- 3
+    if w == vimana.wave_noise
+        <- 4
+    if w == vimana.wave_psg
+        <- 5
+    <- 1
+;
+
+:: code_wave(c = num) (( num ))
+    if c == 2
+        <- vimana.wave_sawtooth
+    if c == 3
+        <- vimana.wave_pulse
+    if c == 4
+        <- vimana.wave_noise
+    if c == 5
+        <- vimana.wave_psg
+    <- vimana.wave_triangle
+;
+
+:: wave_type(w = num) (( string ))
+    if w == vimana.wave_triangle
+        <- "TRI"
+    if w == vimana.wave_sawtooth
+        <- "SAW"
+    if w == vimana.wave_pulse
+        <- "PUL"
+    if w == vimana.wave_noise
+        <- "NOI"
+    if w == vimana.wave_psg
+        <- "PSG"
+    <- "PCM"
+;
+
+:: base_period(semi = num) (( num ))
+    if semi == 1
+        <- 808
+    if semi == 2
+        <- 762
+    if semi == 3
+        <- 720
+    if semi == 4
+        <- 678
+    if semi == 5
+        <- 640
+    if semi == 6
+        <- 604
+    if semi == 7
+        <- 570
+    if semi == 8
+        <- 538
+    if semi == 9
+        <- 508
+    if semi == 10
+        <- 480
+    if semi == 11
+        <- 453
+    <- 856
+;
+
+:: period_for_note(n = num) (( num ))
+    let semi = n % 12
+    let ?oct = stdr.floor(n / 12)
+    if oct < 1
+        oct = 1
+    if oct > 8
+        oct = 8
+    let ?p = base_period(semi)
+    for (let ?o = 1; o < oct; o += 1)
+        p = stdr.floor(p / 2)
+    if p < 28
+        p = 28
+    <- p
+;
+
+:: nearest_note(period = num) (( num ))
+    let ?best = 48
+    let ?best_diff = 9999
+    for (let ?oct = 1; oct <= 8; oct += 1)
+        for (let ?semi = 0; semi < 12; semi += 1)
+            let n = oct * 12 + semi
+            let p = period_for_note(n)
+            let ?d = p - period
+            if d < 0
+                d = 0 - d
+            if d < best_diff
+                best_diff = d
+                best = n
+    <- best
+;

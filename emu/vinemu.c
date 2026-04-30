@@ -522,6 +522,18 @@ static int val_byte_array(Val v, uint8_t *out, int max) {
     return n;
 }
 
+static uint8_t *val_byte_array_alloc(Val v, size_t *out_len) {
+    if (out_len) *out_len = 0;
+    if (v.type!=VT_ARR || !v.arr || v.arr->len<=0) return NULL;
+    size_t n = (size_t)v.arr->len;
+    uint8_t *out = (uint8_t *)malloc(n);
+    if (!out) oom();
+    for (size_t i=0;i<n;i++)
+        out[i]=(uint8_t)val_to_i64(v.arr->items[i]);
+    if (out_len) *out_len = n;
+    return out;
+}
+
 static Val bytes_to_array(const unsigned char *bytes, size_t len) {
     Val a=V_ARR_NEW();
     for(size_t i=0;i<len;i++) arr_push(a.arr,V_INT(bytes[i]));
@@ -636,6 +648,10 @@ static Val vimana_const(const char *name) {
     if (!strcmp(name,"vimana.wave_noise")) return V_INT(3);
     if (!strcmp(name,"vimana.wave_psg")) return V_INT(4);
     if (!strcmp(name,"vimana.voice_count")) return V_INT(8);
+    if (!strcmp(name,"vimana.paula_channels")) return V_INT(VIMANA_CHANNELS);
+    if (!strcmp(name,"vimana.sample_count")) return V_INT(VIMANA_SAMPLE_COUNT);
+    if (!strcmp(name,"vimana.paula_clock")) return V_INT(VIMANA_CLOCK);
+    if (!strcmp(name,"vimana.paula_volume_max")) return V_INT(VIMANA_VOLUME_MAX);
     if (!strcmp(name,"vimana.filter_lp")) return V_INT(1);
     if (!strcmp(name,"vimana.filter_bp")) return V_INT(2);
     if (!strcmp(name,"vimana.filter_hp")) return V_INT(4);
@@ -663,7 +679,8 @@ typedef enum {
     VMT_CONSOLE, VMT_TICKS, VMT_SLEEP, VMT_CLIPBOARD_TEXT,
     VMT_SET_CLIPBOARD_TEXT, VMT_HOME_DIR, VMT_PLAY_TONE,
     VMT_SET_VOICE, VMT_SET_ENVELOPE, VMT_SET_PULSE_WIDTH,
-    VMT_PLAY_VOICE, VMT_STOP_VOICE, VMT_SET_VOICE_VOLUME, VMT_SET_FREQUENCY,
+    VMT_PLAY_VOICE, VMT_SET_SAMPLE, VMT_PLAY_SAMPLE,
+    VMT_STOP_VOICE, VMT_SET_VOICE_VOLUME, VMT_SET_FREQUENCY,
     VMT_SET_SYNC, VMT_SET_RING_MOD, VMT_SET_FILTER,
     VMT_SET_FILTER_ROUTE, VMT_SET_MASTER_VOLUME, VMT_BEGIN_AUDIO,
     VMT_END_AUDIO, VMT_SET_PADDLE, VMT_PADDLE, VMT_SPAWN,
@@ -706,6 +723,7 @@ static const VimanaMethod VIMANA_METHODS[] = {
     {OBJ_SYSTEM,"set_voice",VMT_SET_VOICE},{OBJ_SYSTEM,"set_envelope",VMT_SET_ENVELOPE},
     {OBJ_SYSTEM,"set_pulse_width",VMT_SET_PULSE_WIDTH},
     {OBJ_SYSTEM,"play_voice",VMT_PLAY_VOICE},{OBJ_SYSTEM,"stop_voice",VMT_STOP_VOICE},
+    {OBJ_SYSTEM,"set_sample",VMT_SET_SAMPLE},{OBJ_SYSTEM,"play_sample",VMT_PLAY_SAMPLE},
     {OBJ_SYSTEM,"set_voice_volume",VMT_SET_VOICE_VOLUME},
     {OBJ_SYSTEM,"set_frequency",VMT_SET_FREQUENCY},{OBJ_SYSTEM,"set_sync",VMT_SET_SYNC},
     {OBJ_SYSTEM,"set_ring_mod",VMT_SET_RING_MOD},{OBJ_SYSTEM,"set_filter",VMT_SET_FILTER},
@@ -911,6 +929,18 @@ static Val helper_write_text(vimana_system *sys, Val *args, int argc) {
                                          val_cstr(args[2], text, sizeof(text))));
 }
 
+static Val helper_set_sample(vimana_system *sys, Val *args, int argc, Val self) {
+    if (argc > 4) {
+        size_t n = 0;
+        uint8_t *data = val_byte_array_alloc(args[2], &n);
+        vimana_system_set_sample(sys, (int)val_to_i64(args[1]), data, n,
+                                 (int)val_to_i64(args[3]),
+                                 (int)val_to_i64(args[4]));
+        free(data);
+    }
+    return val_clone(self);
+}
+
 static Val helper_remove(vimana_system *sys, Val *args, int argc) {
     char path[1024];
     return V_BOOL(argc > 1 &&
@@ -980,6 +1010,8 @@ static Val builtin_chain(VM *vm, const char *name, Val *args, int argc) {
     case VMT_SET_ENVELOPE: if(argc>5)vimana_system_set_envelope(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2]),(int)val_to_i64(args[3]),(int)val_to_i64(args[4]),(int)val_to_i64(args[5])); return val_clone(self);
     case VMT_SET_PULSE_WIDTH: if(argc>2)vimana_system_set_pulse_width(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);
     case VMT_PLAY_VOICE: if(argc>3)vimana_system_play_voice(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2]),(int)val_to_i64(args[3])); return val_clone(self);
+    case VMT_SET_SAMPLE: return helper_set_sample(sys,args,argc,self);
+    case VMT_PLAY_SAMPLE: if(argc>4)vimana_system_play_sample(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2]),(int)val_to_i64(args[3]),(int)val_to_i64(args[4])); return val_clone(self);
     case VMT_STOP_VOICE: if(argc>1)vimana_system_stop_voice(sys,(int)val_to_i64(args[1])); return val_clone(self);
     case VMT_SET_VOICE_VOLUME: if(argc>2)vimana_system_set_voice_volume(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);
     case VMT_SET_FREQUENCY: if(argc>2)vimana_system_set_frequency(sys,(int)val_to_i64(args[1]),(int)val_to_i64(args[2])); return val_clone(self);
@@ -1092,6 +1124,59 @@ static Val builtin_chain(VM *vm, const char *name, Val *args, int argc) {
     return val_clone(self);
 }
 
+static Val builtin_getcwd(void) {
+    char path[4096];
+    return getcwd(path,sizeof(path)) ? V_STR_CSTR(path) : V_STR_CSTR(".");
+}
+
+static Val builtin_dirname(Val *args, int argc) {
+    char path[4096];
+    const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
+    size_t n=strlen(s);
+    while(n>1&&s[n-1]=='/') n--;
+    while(n>0&&s[n-1]!='/') n--;
+    if(n==0) return V_STR_CSTR("");
+    while(n>1&&s[n-1]=='/') n--;
+    return V_STR_COPY(s,(int)n);
+}
+
+static Val builtin_basename(Val *args, int argc) {
+    char path[4096];
+    const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
+    size_t n=strlen(s);
+    while(n>1&&s[n-1]=='/') n--;
+    size_t start=n;
+    while(start>0&&s[start-1]!='/') start--;
+    return V_STR_COPY(s+start,(int)(n-start));
+}
+
+static Val builtin_file_exists(Val *args, int argc) {
+    char path[4096];
+    const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
+    FILE *f=fopen(s,"rb");
+    if(!f) return V_FALSE;
+    fclose(f);
+    return V_TRUE;
+}
+
+static Val builtin_read_text_file(Val *args, int argc) {
+    char path[4096];
+    const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
+    return read_text_file_val(s);
+}
+
+static Val builtin_write_text_file(Val *args, int argc) {
+    char path[4096];
+    const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
+    return V_BOOL(argc>1&&write_text_file_val(s,args[1]));
+}
+
+static Val builtin_parse_hex(Val *args, int argc) {
+    char buf[256];
+    const char *s=argc>0?val_cstr(args[0],buf,sizeof(buf)):"";
+    return V_INT(strtoll(s,NULL,16));
+}
+
 static Val builtin(VM *vm, const char *name, Val *args, int argc) {
     (void)vm;
     /* stdr.write / stdr.writef */
@@ -1105,49 +1190,26 @@ static Val builtin(VM *vm, const char *name, Val *args, int argc) {
         return a;
     }
     if (!strcmp(name,"stdr.getcwd")||!strcmp(name,"getcwd")) {
-        char path[4096];
-        return getcwd(path,sizeof(path)) ? V_STR_CSTR(path) : V_STR_CSTR(".");
+        return builtin_getcwd();
     }
     if (!strcmp(name,"stdr.dirname")||!strcmp(name,"dirname")) {
-        char path[4096];
-        const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
-        size_t n=strlen(s);
-        while(n>1&&s[n-1]=='/') n--;
-        while(n>0&&s[n-1]!='/') n--;
-        if(n==0) return V_STR_CSTR("");
-        while(n>1&&s[n-1]=='/') n--;
-        return V_STR_COPY(s,(int)n);
+        return builtin_dirname(args, argc);
     }
     if (!strcmp(name,"stdr.basename")||!strcmp(name,"basename")) {
-        char path[4096];
-        const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
-        size_t n=strlen(s);
-        while(n>1&&s[n-1]=='/') n--;
-        size_t start=n;
-        while(start>0&&s[start-1]!='/') start--;
-        return V_STR_COPY(s+start,(int)(n-start));
+        return builtin_basename(args, argc);
     }
     if (!strcmp(name,"stdr.home_dir")||!strcmp(name,"home_dir")) {
         const char *home=getenv("HOME");
         return V_STR_CSTR((home&&home[0])?home:"/tmp");
     }
     if (!strcmp(name,"stdr.file_exists")||!strcmp(name,"file_exists")) {
-        char path[4096];
-        const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
-        FILE *f=fopen(s,"rb");
-        if(!f) return V_FALSE;
-        fclose(f);
-        return V_TRUE;
+        return builtin_file_exists(args, argc);
     }
     if (!strcmp(name,"stdr.read_text_file")||!strcmp(name,"read_text_file")) {
-        char path[4096];
-        const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
-        return read_text_file_val(s);
+        return builtin_read_text_file(args, argc);
     }
     if (!strcmp(name,"stdr.write_text_file")||!strcmp(name,"write_text_file")) {
-        char path[4096];
-        const char *s=argc>0?val_cstr(args[0],path,sizeof(path)):"";
-        return V_BOOL(argc>1&&write_text_file_val(s,args[1]));
+        return builtin_write_text_file(args, argc);
     }
     if (!strcmp(name,"stdr.len")||!strcmp(name,"len")) {
         if (!argc) return V_INT(0);
@@ -1291,9 +1353,7 @@ static Val builtin(VM *vm, const char *name, Val *args, int argc) {
         return V_BOOL(argc?val_isnull(args[0]):true);
     }
     if (!strcmp(name,"stdr.parse_hex")||!strcmp(name,"parse_hex")) {
-        char buf[256];
-        const char *s=argc>0?val_cstr(args[0],buf,sizeof(buf)):"";
-        return V_INT(strtoll(s,NULL,16));
+        return builtin_parse_hex(args, argc);
     }
     if (!strcmp(name,"stdr.current_year")||!strcmp(name,"current_year")||
         !strcmp(name,"stdr.current_month")||!strcmp(name,"current_month")||
@@ -1394,38 +1454,46 @@ static Val vm_run(VM *vm, int base_rsp) {
         /* Function calls */
         case OP_FUN: {
             uint16_t fi=(uint16_t)(code[fr->pc]|(code[fr->pc+1]<<8)); uint8_t argc2=code[fr->pc+2]; fr->pc+=3;
-            Val *cargs=argc2?alloca(sizeof(Val)*(size_t)argc2):NULL;
+            Val *cargs=argc2?malloc(sizeof(Val)*(size_t)argc2):NULL;
+            if (argc2 && !cargs) oom();
             for(int i=argc2-1;i>=0;i--) cargs[i]=POP();
             if(!rpush_frame(vm,fi,cargs,argc2,false)) release_vals(cargs,argc2);
+            free(cargs);
             break;
         }
         case OP_DEI: {
             uint16_t ei=(uint16_t)(code[fr->pc]|(code[fr->pc+1]<<8)); uint8_t argc2=code[fr->pc+2]; fr->pc+=3;
             if (ei >= r->nexts) { fprintf(stderr,"bad ext index %d\n",ei); exit(1); }
             const char *ename = r->consts[r->exts[ei].name_idx].sval;
-            Val *cargs=argc2?alloca(sizeof(Val)*(size_t)argc2):NULL;
+            Val *cargs=argc2?malloc(sizeof(Val)*(size_t)argc2):NULL;
+            if (argc2 && !cargs) oom();
             for(int i=argc2-1;i>=0;i--) cargs[i]=POP();
             Val out=builtin(vm,ename,cargs,argc2);
             release_vals(cargs,argc2);
+            free(cargs);
             PUSH(out);
             break;
         }
         case OP_DEO: {
             uint16_t ei=(uint16_t)(code[fr->pc]|(code[fr->pc+1]<<8)); uint8_t argc2=code[fr->pc+2]; fr->pc+=3;
             const char *ename = (ei<r->nexts) ? r->consts[r->exts[ei].name_idx].sval : "?";
-            Val *cargs=argc2?alloca(sizeof(Val)*(size_t)argc2):NULL;
+            Val *cargs=argc2?malloc(sizeof(Val)*(size_t)argc2):NULL;
+            if (argc2 && !cargs) oom();
             for(int i=argc2-1;i>=0;i--) cargs[i]=POP();
             Val out=builtin(vm,ename,cargs,argc2);
             val_release(out);
             release_vals(cargs,argc2);
+            free(cargs);
             break;
         }
         case OP_CLO: {
             uint16_t fi=(uint16_t)(code[fr->pc]|(code[fr->pc+1]<<8)); uint8_t argc2=code[fr->pc+2]; fr->pc+=3;
-            Val *caps=argc2?alloca(sizeof(Val)*(size_t)argc2):NULL;
+            Val *caps=argc2?malloc(sizeof(Val)*(size_t)argc2):NULL;
+            if (argc2 && !caps) oom();
             for(int i=argc2-1;i>=0;i--) caps[i]=POP();
             Val fn=V_FUNC(fi,caps,argc2);
             release_vals(caps,argc2);
+            free(caps);
             PUSH(fn);
             break;
         }

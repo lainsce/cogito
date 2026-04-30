@@ -26,9 +26,13 @@ extern "C" {
 #define VIMANA_CONSOLE_ARG         0x02     /* argv byte                */
 #define VIMANA_CONSOLE_EOA         0x03     /* end of argument          */
 #define VIMANA_CONSOLE_END         0x04     /* end of input             */
-#define VIMANA_AUDIO_SAMPLE_RATE   44100   /* sample rate for generated tones */
-#define VIMANA_AUDIO_CHANNELS      1       /* mono output for generated tones */
-#define VIMANA_VOICE_COUNT         8       /* 4 SID + 3 SID accomp + 1 PSG    */
+#define VIMANA_AUDIO_SAMPLE_RATE   44100   /* sample rate for generated tones  */
+#define VIMANA_AUDIO_CHANNELS      1       /* mono output for generated tones  */
+#define VIMANA_VOICE_COUNT         8       /* 4 SID + 3 SID accomp + 1 PSG     */
+#define VIMANA_CHANNELS            4       /* PCM lanes                        */
+#define VIMANA_SAMPLE_COUNT        32      /* PCM sample slots                 */
+#define VIMANA_CLOCK               3546895 /* PAL color clock / 2              */
+#define VIMANA_VOLUME_MAX          64      /* 6-bit volume                     */
 #define VIMANA_AUDIO_CLOCK         1024000 /* virtual oscillator clock (~1 MHz)*/
 
 /* Waveform types (SID-inspired) */
@@ -113,6 +117,11 @@ void vimana_system_set_pulse_width(vimana_system *system, int channel,
                                    int width);
 void vimana_system_play_voice(vimana_system *system, int channel,
                               int pitch, int volume);
+void vimana_system_set_sample(vimana_system *system, int slot,
+                              const uint8_t *data, size_t len,
+                              int loop_start, int loop_len);
+void vimana_system_play_sample(vimana_system *system, int channel,
+                               int slot, int period, int volume);
 void vimana_system_set_voice_volume(vimana_system *system, int channel,
                                     int volume);
 void vimana_system_stop_voice(vimana_system *system, int channel);

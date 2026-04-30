@@ -1,0 +1,106 @@
+cask tracker_draw
+
+bring stdr
+bring vimana
+
+:: fill(scr = vimana.screen, x = num, y = num, w = num, h = num, c = num) (( -- ))
+    scr.set_auto(1)
+    for (let ?row = 0; row < h; row += 1)
+        scr.set_y(y + row).set_x(x)
+        for (let ?col = 0; col < w; col += 1)
+            scr.pixel(c)
+    scr.set_auto(0)
+;
+
+:: box(scr = vimana.screen, x = num, y = num, w = num, h = num, c = num) (( -- ))
+    fill(scr, x, y, w, 1, c)
+    fill(scr, x, y + h - 1, w, 1, c)
+    fill(scr, x, y + 1, 1, h - 2, c)
+    fill(scr, x + w - 1, y + 1, 1, h - 2, c)
+;
+
+:: line(scr = vimana.screen, x0 = num, y0 = num, x1 = num, y1 = num, c = num) (( -- ))
+    let ?dx = x1 - x0
+    let ?dy = y1 - y0
+    let ?adx = dx
+    if adx < 0
+        adx = 0 - adx
+    let ?ady = dy
+    if ady < 0
+        ady = 0 - ady
+    let ?steps = adx
+    if ady > steps
+        steps = ady
+    if steps <= 0
+        fill(scr, x0, y0, 1, 1, c)
+        <-
+    for (let ?i = 0; i <= steps; i += 1)
+        let px = x0 + stdr.floor((dx * i) / steps)
+        let py = y0 + stdr.floor((dy * i) / steps)
+        fill(scr, px, py, 1, 1, c)
+;
+
+: tiny_hex_bits(n = num) (( num ))
+    if n == 0
+        <- 0x7B6F
+    if n == 1
+        <- 0x2492
+    if n == 2
+        <- 0x73E7
+    if n == 3
+        <- 0x73CF
+    if n == 4
+        <- 0x5BC9
+    if n == 5
+        <- 0x79CF
+    if n == 6
+        <- 0x79EF
+    if n == 7
+        <- 0x7249
+    if n == 8
+        <- 0x7BEF
+    if n == 9
+        <- 0x7BCF
+    if n == 10
+        <- 0x7BED
+    if n == 11
+        <- 0x79EE
+    if n == 12
+        <- 0x7927
+    if n == 13
+        <- 0x73AE
+    if n == 14
+        <- 0x79E7
+    <- 0x79E4
+;
+
+: tiny_hex_digit(scr = vimana.screen, x = num, y = num, n = num, c = num) (( -- ))
+    let bits = tiny_hex_bits(n % 16)
+    for (let ?row = 0; row < 5; row += 1)
+        for (let ?col = 0; col < 3; col += 1)
+            let bit = 14 - (row * 3 + col)
+            let ?mask = 1
+            for (let ?i = 0; i < bit; i += 1)
+                mask = mask * 2
+            if stdr.floor(bits / mask) % 2 == 1
+                fill(scr, x + col, y + row, 1, 1, c)
+;
+
+:: tiny_hex2(scr = vimana.screen, x = num, y = num, n = num, c = num) (( -- ))
+    tiny_hex_digit(scr, x, y, stdr.floor(n / 16), c)
+    tiny_hex_digit(scr, x + 4, y, n % 16, c)
+;
+
+:: tiny_dash2(scr = vimana.screen, x = num, y = num, c = num) (( -- ))
+    fill(scr, x, y + 2, 3, 1, c)
+    fill(scr, x + 4, y + 2, 3, 1, c)
+;
+
+:: tiny_marker(scr = vimana.screen, x = num, y = num, c = num) (( -- ))
+    fill(scr, x, y, 1, 1, c)
+    fill(scr, x + 1, y + 1, 1, 1, c)
+    fill(scr, x + 2, y + 2, 1, 1, c)
+    fill(scr, x + 1, y + 3, 1, 1, c)
+    fill(scr, x, y + 4, 1, 1, c)
+    fill(scr, x + 4, y + 2, 3, 1, c)
+;
