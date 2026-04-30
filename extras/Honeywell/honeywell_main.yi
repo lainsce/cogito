@@ -769,20 +769,12 @@ def ?status = "READY"
     execute_step()
 ;
 
-: apply_palette(scr = vimana.screen) (( -- ))
-    scr.set_palette(C_BLACK, "#000000")
-       .set_palette(C_WHITE, "#ffffff")
-       .set_palette(C_PANEL, "#cccccc")
-       .set_palette(C_LAMP_ON, "#ffee33")
-;
-
 -> ()
     let sys = vimana.system()
     let scr = vimana.screen("Honeywell 200", WIN_W, WIN_H, 2)
     let dev = sys.device()
     scr.set_cursor(CURSOR_ICN)
     scr.hide_cursor()
-    apply_palette(scr)
     honeywell_font.install(scr)
     scr.set_sprite(CURSOR_ADDR, CURSOR_ICN, 0)
     init_bits()
