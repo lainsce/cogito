@@ -10,7 +10,7 @@ SDL_LIBS := $(shell $(PKG_CONFIG) --libs sdl3 2>/dev/null || $(PKG_CONFIG) --lib
 UNAME_S := $(shell uname -s)
 VINEMU_OBJS := vinemu.o vimana.o
 ifeq ($(UNAME_S),Darwin)
-VINEMU_OBJS += cocoa_autoreleasepool.o
+VINEMU_OBJS += cocoa_autoreleasepool.o mac_dialogs.o
 COCOA_LIBS := -framework Foundation -framework AppKit
 endif
 
@@ -33,6 +33,9 @@ vimana.o: ../src/c/vimana.c ../src/c/vimana.h
 
 cocoa_autoreleasepool.o: ../src/objc/cocoa_autoreleasepool.mm
 	$(CXX) $(SDL_CFLAGS) -c -o $@ ../src/objc/cocoa_autoreleasepool.mm
+
+mac_dialogs.o: ../src/objc/mac_dialogs.mm
+	$(CXX) -c -o $@ ../src/objc/mac_dialogs.mm
 
 clean:
 	rm -f vinasm vinemu $(VINEMU_OBJS)

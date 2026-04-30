@@ -20,6 +20,10 @@
 #ifdef __APPLE__
 extern void *vimana_app_autorelease_push(void);
 extern void vimana_app_autorelease_pop(void *pool);
+extern bool vimana_mac_open_file_dialog(const char *title, const char *default_path,
+                                        char *out, size_t outsz);
+extern bool vimana_mac_save_file_dialog(const char *title, const char *default_path,
+                                        char *out, size_t outsz);
 #endif
 
 /* ═══════════════════════════════ Value type ════════════════════════ */
@@ -576,6 +580,14 @@ static Val prompt_path_dialog(const char *kind, Val titlev, Val defaultv) {
     char title[256], def[4096], line[4096];
     const char *t=val_cstr(titlev,title,sizeof(title));
     const char *d=val_cstr(defaultv,def,sizeof(def));
+#ifdef __APPLE__
+    bool is_save = !strcmp(kind,"save_file");
+    bool ok = is_save
+        ? vimana_mac_save_file_dialog(t,d,line,sizeof(line))
+        : vimana_mac_open_file_dialog(t,d,line,sizeof(line));
+    if (ok) return V_STR_CSTR(line);
+    return d&&d[0]?V_STR_CSTR(d):V_STR_CSTR("");
+#else
     fprintf(stderr,"%s",kind);
     if(t&&t[0]) fprintf(stderr," [%s]",t);
     if(d&&d[0]) fprintf(stderr," default='%s'",d);
@@ -586,6 +598,7 @@ static Val prompt_path_dialog(const char *kind, Val titlev, Val defaultv) {
     while(n>0&&(line[n-1]=='\n'||line[n-1]=='\r')) line[--n]=0;
     if(n==0&&d&&d[0]) return V_STR_CSTR(d);
     return V_STR_CSTR(line);
+#endif
 }
 
 static Val vimana_const(const char *name) {
