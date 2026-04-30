@@ -56,10 +56,10 @@ def MEM_SIZE = 16
 def C_BLACK = vimana.color_bg
 def C_WHITE = vimana.color_fg
 def C_PANEL = vimana.color_2
-def C_LAMP_ON = vimana.color_7
-def C_BLUE = vimana.color_6
-def C_GREEN = vimana.color_8
-def C_RED = vimana.color_9
+def C_LAMP_ON = vimana.color_3
+def C_BLUE = C_LAMP_ON
+def C_GREEN = C_LAMP_ON
+def C_RED = C_LAMP_ON
 
 def ?contents = []: [bool]
 def ?address = []: [bool]
@@ -137,6 +137,9 @@ def ?status = "READY"
 ;
 
 : draw_button(scr = vimana.screen, x = num, y = num, w = num, h = num, text = string, color = num, bg = num) (( -- ))
+    let ?glyph = C_BLACK
+    if color == C_BLACK
+        glyph = C_WHITE
     scr.put_icn(x, y, BUTTON_TL_ICN, C_BLACK, color)
     scr.put_icn(x + 8, y, BUTTON_TR_ICN, C_BLACK, color)
     scr.put_icn(x, y + 8, BUTTON_BL_ICN, C_BLACK, color)
@@ -146,25 +149,25 @@ def ?status = "READY"
     scr.put_icn(x, y + 8, BUTTON_CLR_BL_ICN, color, bg)
     scr.put_icn(x + 8, y + 8, BUTTON_CLR_BR_ICN, color, bg)
     if text == "^"
-        scr.put_icn(x + 4, y + 4, ARROW_UP_ICN, C_WHITE, color)
+        scr.put_icn(x + 4, y + 4, ARROW_UP_ICN, glyph, color)
     elif text == "v"
-        scr.put_icn(x + 4, y + 4, ARROW_DOWN_ICN, C_WHITE, color)
+        scr.put_icn(x + 4, y + 4, ARROW_DOWN_ICN, glyph, color)
     elif text == ">"
-        scr.put_icn(x + 4, y + 4, RUN_ICN, C_BLACK, color)
+        scr.put_icn(x + 4, y + 4, RUN_ICN, glyph, color)
     elif text == "STOP"
-        scr.put_icn(x + 4, y + 4, STOP_ICN, C_WHITE, color)
+        scr.put_icn(x + 4, y + 4, STOP_ICN, glyph, color)
     elif text == "DOT"
-        scr.put_icn(x + 4, y + 4, BLUE_DOT_ICN, C_BLUE, color)
+        scr.put_icn(x + 4, y + 4, BLUE_DOT_ICN, glyph, color)
     elif text == "CLR"
         scr.put_icn(x + 4, y + 4, CENTRAL_CLEAR_ICN, C_BLACK, color)
     elif text == "INST"
         scr.put_icn(x + 4, y + 4, INSTRUCT_ICN, C_BLACK, color)
     elif text == "!" || text == "+"
-        label(scr, x + 4, y + 4, text, C_WHITE, color)
+        label(scr, x + 4, y + 4, text, glyph, color)
     elif stdr.len(text) > 0 && text != "+" && text != "!"
         label(scr, x + 4, y + 4, text, C_BLACK, color)
     else
-        scr.put_icn(x + 4, y + 4, SWITCH_ICN, C_BLUE, color)
+        scr.put_icn(x + 4, y + 4, SWITCH_ICN, glyph, color)
 ;
 
 : panel_word(row = num) (( num ))
@@ -249,6 +252,33 @@ def ?status = "READY"
     pc = idx
     job_loaded = false
     status = "LOAD " + str(idx)
+    needs_redraw = true
+;
+
+: display_word_at_address() (( -- ))
+    let idx = addr_index()
+    set_panel_word(0, memory[idx])
+    status = "DISP " + str(idx)
+    needs_redraw = true
+;
+
+: display_word_and_step(delta = num) (( -- ))
+    let ?idx = addr_index()
+    set_panel_word(0, memory[idx])
+    idx += delta
+    if idx < 0
+        idx = MEM_SIZE - 1
+    if idx >= MEM_SIZE
+        idx = 0
+    set_addr_index(idx)
+    status = "DISP " + str(idx)
+    needs_redraw = true
+;
+
+: enter_word_at_address() (( -- ))
+    let idx = addr_index()
+    memory[idx] = panel_word(0)
+    status = "ENTER " + str(idx)
     needs_redraw = true
 ;
 
@@ -346,6 +376,8 @@ def ?status = "READY"
 ;
 
 : bump_addr(delta = num) (( -- ))
+    if running
+        <-
     let ?idx = addr_index() + delta
     if idx < 0
         idx = MEM_SIZE - 1
@@ -357,6 +389,8 @@ def ?status = "READY"
 ;
 
 : bump_contents(delta = num) (( -- ))
+    if running
+        <-
     let ?value = panel_word(0) + delta
     if value < 0
         value = 63
@@ -500,15 +534,17 @@ def ?status = "READY"
 : draw_display_box(scr = vimana.screen) (( -- ))
     fill_rect(scr, RIGHT_EDGE_X, 8, RIGHT_W, 16, C_PANEL)
     label(scr, 572, 36, "DISPLAY", C_WHITE, C_BLACK)
-    label(scr, 626, 36, "ENTER", C_WHITE, C_BLACK)
+    label(scr, 648, 36, "ENTER", C_WHITE, C_BLACK)
     fill_rect(scr, RIGHT_EDGE_X, 48, RIGHT_W, 4, C_PANEL)
     draw_button(scr, 572, 44, 22, 22, "^", C_BLUE, C_BLACK)
-    draw_button(scr, 626, 44, 22, 22, "v", C_BLUE, C_BLACK)
-    label(scr, 572, 68, "DISPLAY", C_WHITE, C_BLACK)
+    draw_button(scr, 648, 44, 22, 22, "v", C_BLUE, C_BLACK)
+    label(scr, 572, 68, "D I S P L A Y", C_WHITE, C_BLACK)
+    label(scr, 648, 68, "ENTER", C_WHITE, C_BLACK)
     fill_rect(scr, RIGHT_EDGE_X, 80, RIGHT_W, 4, C_PANEL)
     draw_button(scr, 572, 76, 22, 22, "^", C_BLUE, C_BLACK)
     draw_button(scr, 598, 76, 22, 22, "+", C_BLUE, C_BLACK)
-    draw_button(scr, 626, 76, 22, 22, "v", C_BLUE, C_BLACK)
+    draw_button(scr, 622, 76, 22, 22, "-", C_BLUE, C_BLACK)
+    draw_button(scr, 648, 76, 22, 22, "v", C_BLUE, C_BLACK)
 ;
 
 : draw_sense_box(scr = vimana.screen) (( -- ))
@@ -547,6 +583,8 @@ def ?status = "READY"
 ;
 
 : toggle_row(mx = num, my = num, y = num, row = num, count = num) (( bool ))
+    if running
+        <- false
     let ?start_x = ADDRESS_LAMPS_X
     if row == 0
         start_x = CONTENT_LAMPS_X
@@ -560,9 +598,7 @@ def ?status = "READY"
             let ?word = contents_display
             if row != 0
                 word = address_display
-            if (word % (mask * 2)) >= mask
-                word -= mask
-            else
+            if (word % (mask * 2)) < mask
                 word += mask
             set_panel_word(row, word)
             <- true
@@ -582,12 +618,16 @@ def ?status = "READY"
         needs_redraw = true
         <-
     if in_rect(mx, my, RECORD_ITEM_X, PANEL_TOP + 10, 22, 22)
+        if running
+            <-
         pc = addr_index()
         status = "ITEM"
         needs_redraw = true
         <-
     if in_rect(mx, my, RECORD_WORD_X, PANEL_TOP + 10, 22, 22)
-        store_word()
+        if running
+            <-
+        enter_word_at_address()
         <-
     if toggle_row(mx, my, PANEL_TOP + ROW_H, 1, ADDRESS_BITS)
         needs_redraw = true
@@ -621,48 +661,75 @@ def ?status = "READY"
         needs_redraw = true
         <-
     if in_rect(mx, my, 198, cy + 56, 22, 22)
+        if running
+            <-
         initialize()
         <-
     if in_rect(mx, my, 236, cy + 56, 22, 22)
+        if running
+            <-
         bootstrap()
         <-
     if in_rect(mx, my, 278, cy + 56, 22, 22)
+        if running
+            <-
         clear_all()
         <-
     if in_rect(mx, my, 316, cy + 56, 22, 22)
-        load_word()
+        if running
+            <-
+        execute_step()
+        running = false
+        status = "INSTR"
         <-
     if in_rect(mx, my, 354, cy + 56, 22, 22)
-        running = !running
+        running = true
         status = "RUN"
-        if !running
-            status = "STOP"
         needs_redraw = true
         <-
     if in_rect(mx, my, 416, cy + 56, 22, 12)
+        if running
+            <-
         addr_mode = 2
         status = "MODE 2"
         needs_redraw = true
         <-
     if in_rect(mx, my, 416, cy + 72, 22, 12)
+        if running
+            <-
         addr_mode = 3
         status = "MODE 3"
         needs_redraw = true
         <-
     if in_rect(mx, my, 572, 44, 22, 22)
-        bump_addr(1)
+        if running
+            <-
+        display_word_at_address()
         <-
-    if in_rect(mx, my, 626, 44, 22, 22)
-        bump_addr(-1)
+    if in_rect(mx, my, 648, 44, 22, 22)
+        if running
+            <-
+        enter_word_at_address()
         <-
     if in_rect(mx, my, 572, 76, 22, 22)
-        bump_contents(1)
+        if running
+            <-
+        display_word_and_step(1)
         <-
     if in_rect(mx, my, 598, 76, 22, 22)
-        store_word()
+        if running
+            <-
+        display_word_and_step(1)
         <-
-    if in_rect(mx, my, 626, 76, 22, 22)
-        bump_contents(-1)
+    if in_rect(mx, my, 622, 76, 22, 22)
+        if running
+            <-
+        display_word_and_step(-1)
+        <-
+    if in_rect(mx, my, 648, 76, 22, 22)
+        if running
+            <-
+        enter_word_at_address()
         <-
     for (let ?i = 0; i < CONTROL_BITS; i += 1)
         let x = CONTROL_LAMPS_X + i * 20
@@ -707,14 +774,11 @@ def ?status = "READY"
        .set_palette(C_WHITE, "#ffffff")
        .set_palette(C_PANEL, "#cccccc")
        .set_palette(C_LAMP_ON, "#ffee33")
-       .set_palette(C_BLUE, "#3333ff")
-       .set_palette(C_GREEN, "#33ff33")
-       .set_palette(C_RED, "#ff3333")
 ;
 
 -> ()
     let sys = vimana.system()
-    let scr = vimana.screen("Honeywell 200", WIN_W, WIN_H, 1)
+    let scr = vimana.screen("Honeywell 200", WIN_W, WIN_H, 2)
     let dev = sys.device()
     scr.set_cursor(CURSOR_ICN)
     scr.hide_cursor()
