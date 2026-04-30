@@ -1,0 +1,749 @@
+cask main
+
+bring stdr
+bring vimana
+bring honeywell_font
+
+def WIN_W = 688
+def WIN_H = 190
+def PANEL_TOP = 16
+def ROW_H = 32
+def ROW_X = 0
+def RIGHT_EDGE_X = 552
+def ROW_W = 552
+def RIGHT_W = 136
+def CLEAR_X = 148
+def CONTENT_LAMPS_X = 424
+def ADDRESS_LAMPS_X = 220
+def CONTROL_LAMPS_X = 464
+def RECORD_ITEM_X = 376
+def RECORD_WORD_X = 400
+def CONTENT_BITS = 6
+def ADDRESS_BITS = 15
+def CONTROL_BITS = 4
+def LAMP_W = 16
+def LAMP_H = 20
+def LAMP_GAP = 4
+def LAMP_GROUP_GAP = 8
+def CURSOR_ADDR = 0x120
+
+def CURSOR_ICN = [0x4060, 0x7078, 0x7c70, 0x5808]
+def FILL_ICN = [0xffff, 0xffff, 0xffff, 0xffff]
+def LAMP_TL_ICN = [0x0007, 0x1f3f, 0x3f7f, 0x7f7f]
+def LAMP_TR_ICN = [0x00e0, 0xf8fc, 0xfcfe, 0xfefe]
+def LAMP_BL_ICN = [0x7f7f, 0x7f3f, 0x3f1f, 0x0700]
+def LAMP_BR_ICN = [0xfefe, 0xfefc, 0xfcf8, 0xe000]
+def LAMP_HI_ICN = [0x0000, 0x0004, 0x0e1f, 0x0e04]
+def BUTTON_TL_ICN = [0x001f, 0x2040, 0x4040, 0x4040]
+def BUTTON_TR_ICN = [0x00f8, 0x0402, 0x0202, 0x0202]
+def BUTTON_BL_ICN = [0x4040, 0x4040, 0x603f, 0x1f00]
+def BUTTON_BR_ICN = [0x0202, 0x0202, 0x06fc, 0xf800]
+def BUTTON_CLR_TL_ICN = [0x001f, 0x3f7f, 0x7f7f, 0x7f7f]
+def BUTTON_CLR_TR_ICN = [0x00f8, 0xfcfe, 0xfefe, 0xfefe]
+def BUTTON_CLR_BL_ICN = [0x7f7f, 0x7f5f, 0x4f20, 0x1f00]
+def BUTTON_CLR_BR_ICN = [0xfefe, 0xfefa, 0xf204, 0xf800]
+def SWITCH_ICN = [0x1038, 0x5454, 0x4438, 0x0000]
+def BLUE_DOT_ICN = [0x1038, 0x7cfe, 0x7c38, 0x1000]
+def CENTRAL_CLEAR_ICN = [0x3078, 0xfcfc, 0x7830, 0x0000]
+def INSTRUCT_ICN = [0xe0e0, 0x1c1c, 0xe0e0, 0x1c1c]
+def ARROW_UP_ICN = [0x183c, 0x7edb, 0x1818, 0x1800]
+def ARROW_DOWN_ICN = [0x1818, 0x18db, 0x7e3c, 0x1800]
+def RUN_ICN = [0x2030, 0x383c, 0x3830, 0x2000]
+def STOP_ICN = [0x007e, 0x7e7e, 0x7e7e, 0x7e00]
+
+def MEM_SIZE = 16
+
+def C_BLACK = vimana.color_bg
+def C_WHITE = vimana.color_fg
+def C_PANEL = vimana.color_2
+def C_LAMP_ON = vimana.color_7
+def C_BLUE = vimana.color_6
+def C_GREEN = vimana.color_8
+def C_RED = vimana.color_9
+
+def ?contents = []: [bool]
+def ?address = []: [bool]
+def ?control = []: [bool]
+def ?sense = []: [bool]
+def ?memory = []: [num]
+def ?contents_display = 0
+def ?address_display = 0
+def ?control_display = 0
+def ?sense_display = 0
+def ?running = false
+def ?job_loaded = false
+def ?job_phase = 0
+def ?fib_prev = 0
+def ?fib_curr = 0
+def ?ac_on = true
+def ?dc_on = true
+def ?addr_mode = 2
+def ?pc = 0
+def ?last_step = 0
+def ?needs_redraw = true
+def ?last_mx = -1
+def ?last_my = -1
+def ?status = "READY"
+
+: init_bits() (( -- ))
+    contents = []: [bool]
+    address = []: [bool]
+    control = []: [bool]
+    sense = []: [bool]
+    memory = []: [num]
+    for (let ?i = 0; i < 18; i += 1)
+        contents[i] = i == 1 || i == 5 || i == 8 || i == 13
+        address[i] = i == 2 || i == 6 || i == 10 || i == 15
+    for (let ?i = 0; i < CONTROL_BITS; i += 1)
+        control[i] = i == 1 || i == 3
+    for (let ?i = 0; i < 4; i += 1)
+        sense[i] = false
+    for (let ?i = 0; i < MEM_SIZE; i += 1)
+        memory[i] = i * 8738 + 1
+    pc = 0
+    job_loaded = false
+    job_phase = 0
+    fib_prev = 0
+    fib_curr = 1
+    ac_on = true
+    dc_on = true
+    addr_mode = 2
+    status = "READY"
+    refresh_display_words()
+;
+
+: fill_rect(scr = vimana.screen, x = num, y = num, w = num, h = num, color = num) (( -- ))
+    let x2 = x + w
+    let y2 = y + h
+    for (let ?py = y; py < y2; py += 8)
+        for (let ?px = x; px < x2; px += 8)
+            scr.put_icn(px, py, FILL_ICN, color, color)
+;
+
+: label(scr = vimana.screen, x = num, y = num, text = string, fg = num, bg = num) (( -- ))
+    scr.put_text(x, y, text, fg, bg)
+;
+
+: draw_lamp(scr = vimana.screen, x = num, y = num, on = bool, tint = num) (( -- ))
+    let ?body = C_BLACK
+    if on
+        body = C_LAMP_ON
+    scr.put_icn(x, y, LAMP_TL_ICN, body, C_PANEL)
+    scr.put_icn(x + 8, y, LAMP_TR_ICN, body, C_PANEL)
+    scr.put_icn(x, y + 8, LAMP_BL_ICN, body, C_PANEL)
+    scr.put_icn(x + 8, y + 8, LAMP_BR_ICN, body, C_PANEL)
+    if on
+        scr.put_icn(x + 3, y + 3, LAMP_HI_ICN, C_WHITE, body)
+;
+
+: draw_button(scr = vimana.screen, x = num, y = num, w = num, h = num, text = string, color = num, bg = num) (( -- ))
+    scr.put_icn(x, y, BUTTON_TL_ICN, C_BLACK, color)
+    scr.put_icn(x + 8, y, BUTTON_TR_ICN, C_BLACK, color)
+    scr.put_icn(x, y + 8, BUTTON_BL_ICN, C_BLACK, color)
+    scr.put_icn(x + 8, y + 8, BUTTON_BR_ICN, C_BLACK, color)
+    scr.put_icn(x, y, BUTTON_CLR_TL_ICN, color, bg)
+    scr.put_icn(x + 8, y, BUTTON_CLR_TR_ICN, color, bg)
+    scr.put_icn(x, y + 8, BUTTON_CLR_BL_ICN, color, bg)
+    scr.put_icn(x + 8, y + 8, BUTTON_CLR_BR_ICN, color, bg)
+    if text == "^"
+        scr.put_icn(x + 4, y + 4, ARROW_UP_ICN, C_WHITE, color)
+    elif text == "v"
+        scr.put_icn(x + 4, y + 4, ARROW_DOWN_ICN, C_WHITE, color)
+    elif text == ">"
+        scr.put_icn(x + 4, y + 4, RUN_ICN, C_BLACK, color)
+    elif text == "STOP"
+        scr.put_icn(x + 4, y + 4, STOP_ICN, C_WHITE, color)
+    elif text == "DOT"
+        scr.put_icn(x + 4, y + 4, BLUE_DOT_ICN, C_BLUE, color)
+    elif text == "CLR"
+        scr.put_icn(x + 4, y + 4, CENTRAL_CLEAR_ICN, C_BLACK, color)
+    elif text == "INST"
+        scr.put_icn(x + 4, y + 4, INSTRUCT_ICN, C_BLACK, color)
+    elif text == "!" || text == "+"
+        label(scr, x + 4, y + 4, text, C_WHITE, color)
+    elif stdr.len(text) > 0 && text != "+" && text != "!"
+        label(scr, x + 4, y + 4, text, C_BLACK, color)
+    else
+        scr.put_icn(x + 4, y + 4, SWITCH_ICN, C_BLUE, color)
+;
+
+: panel_word(row = num) (( num ))
+    let ?value = 0
+    let ?count = ADDRESS_BITS
+    if row == 0
+        count = CONTENT_BITS
+    for (let ?i = 0; i < count; i += 1)
+        value = value * 2
+        if bit_on(row, i)
+            value += 1
+    <- value
+;
+
+: set_panel_word(row = num, value = num) (( -- ))
+    let ?count = ADDRESS_BITS
+    let ?mask = 16384
+    if row == 0
+        count = CONTENT_BITS
+        mask = 32
+    for (let ?i = 0; i < count; i += 1)
+        set_bit(row, i, (value % (mask * 2)) >= mask)
+        mask = stdr.floor(mask / 2)
+    if row == 0
+        contents_display = value
+    else
+        address_display = value
+;
+
+: refresh_display_words() (( -- ))
+    contents_display = panel_word(0)
+    address_display = panel_word(1)
+    control_display = 0
+    for (let ?i = 0; i < CONTROL_BITS; i += 1)
+        control_display = control_display * 2
+        if control[i]
+            control_display += 1
+    sense_display = 0
+    for (let ?i = 0; i < 4; i += 1)
+        sense_display = sense_display * 2
+        if sense[i]
+            sense_display += 1
+;
+
+: addr_index() (( num ))
+    let ?value = 0
+    for (let ?i = 11; i < 15; i += 1)
+        value = value * 2
+        if address[i]
+            value += 1
+    <- value % MEM_SIZE
+;
+
+: set_addr_index(idx = num) (( -- ))
+    let ?v = idx % MEM_SIZE
+    for (let ?i = 0; i < ADDRESS_BITS; i += 1)
+        address[i] = false
+    address[11] = v >= 8
+    if v >= 8
+        v -= 8
+    address[12] = v >= 4
+    if v >= 4
+        v -= 4
+    address[13] = v >= 2
+    if v >= 2
+        v -= 2
+    address[14] = v >= 1
+    address_display = panel_word(1)
+;
+
+: store_word() (( -- ))
+    let idx = addr_index()
+    memory[idx] = panel_word(0)
+    job_loaded = false
+    status = "STORE " + str(idx)
+    needs_redraw = true
+;
+
+: load_word() (( -- ))
+    let idx = addr_index()
+    set_panel_word(0, memory[idx])
+    pc = idx
+    job_loaded = false
+    status = "LOAD " + str(idx)
+    needs_redraw = true
+;
+
+: execute_step() (( -- ))
+    if !ac_on || !dc_on
+        running = false
+        status = "POWER"
+        needs_redraw = true
+        <-
+    if job_loaded
+        if job_phase == 0
+            set_addr_index(0)
+            set_panel_word(0, memory[0])
+            status = "JOB"
+        elif job_phase == 1
+            set_addr_index(1)
+            set_panel_word(0, memory[1])
+            status = "LOAD"
+        elif job_phase == 2
+            set_addr_index(2)
+            set_panel_word(0, fib_prev)
+            status = "PREV"
+        elif job_phase == 3
+            set_addr_index(3)
+            set_panel_word(0, fib_curr)
+            status = "CURR"
+        elif job_phase == 4
+            let next = (fib_prev + fib_curr) % 64
+            fib_prev = fib_curr
+            fib_curr = next
+            memory[2] = fib_prev
+            memory[3] = fib_curr
+            set_addr_index(4)
+            memory[4] = fib_curr
+            set_panel_word(0, fib_curr)
+            status = "CALC"
+        else
+            set_addr_index(4)
+            set_panel_word(0, memory[4])
+            status = "PRINT"
+        pc = (pc + 1) % MEM_SIZE
+        job_phase = (job_phase + 1) % 6
+        needs_redraw = true
+        <-
+    let idx = pc % MEM_SIZE
+    let word = memory[idx]
+    set_addr_index(idx)
+    let display_word = (word + idx * 3) % 64
+    set_panel_word(0, display_word)
+    pc = (idx + 1) % MEM_SIZE
+    status = "STEP " + str(idx)
+    needs_redraw = true
+;
+
+: clear_all() (( -- ))
+    for (let ?i = 0; i < 18; i += 1)
+        contents[i] = false
+        address[i] = false
+    status = "CLR"
+    refresh_display_words()
+    needs_redraw = true
+;
+
+: initialize() (( -- ))
+    running = false
+    pc = 0
+    job_loaded = false
+    job_phase = 0
+    fib_prev = 0
+    fib_curr = 1
+    for (let ?i = 0; i < MEM_SIZE; i += 1)
+        memory[i] = 0
+    clear_all()
+    status = "INIT"
+;
+
+: bootstrap() (( -- ))
+    running = false
+    job_loaded = true
+    job_phase = 0
+    pc = 0
+    fib_prev = 0
+    fib_curr = 1
+    for (let ?i = 0; i < MEM_SIZE; i += 1)
+        memory[i] = 0
+    memory[0] = 12
+    memory[1] = 23
+    memory[2] = fib_prev
+    memory[3] = fib_curr
+    memory[4] = fib_curr
+    set_panel_word(1, 0)
+    set_panel_word(0, memory[0])
+    status = "M2 JOB"
+    needs_redraw = true
+;
+
+: bump_addr(delta = num) (( -- ))
+    let ?idx = addr_index() + delta
+    if idx < 0
+        idx = MEM_SIZE - 1
+    if idx >= MEM_SIZE
+        idx = 0
+    set_addr_index(idx)
+    status = "ADDR " + str(idx)
+    needs_redraw = true
+;
+
+: bump_contents(delta = num) (( -- ))
+    let ?value = panel_word(0) + delta
+    if value < 0
+        value = 63
+    if value > 63
+        value = 0
+    set_panel_word(0, value)
+    status = "WORD"
+    needs_redraw = true
+;
+
+: bit_on(row = num, idx = num) (( bool ))
+    if row == 0
+        <- contents[idx]
+    <- address[idx]
+;
+
+: set_bit(row = num, idx = num, val = bool) (( -- ))
+    if row == 0
+        contents[idx] = val
+        contents_display = panel_word(0)
+        <-
+    address[idx] = val
+    address_display = panel_word(1)
+;
+
+: draw_bit_row(scr = vimana.screen, y = num, name = string, row = num, count = num, tint = num) (( -- ))
+    fill_rect(scr, ROW_X, y, ROW_W, ROW_H - 6, C_PANEL)
+    fill_rect(scr, ROW_X, y, ROW_W, 4, C_BLACK)
+    fill_rect(scr, RIGHT_EDGE_X, y, RIGHT_W, ROW_H - 6, C_BLACK)
+    label(scr, 20, y + 16, name, C_BLACK, C_PANEL)
+    draw_button(scr, CLEAR_X, y + 10, 22, 22, "DOT", C_PANEL, C_BLACK)
+    label(scr, CLEAR_X - 2, y, "CLEAR", C_WHITE, C_BLACK)
+
+    let ?start_x = ADDRESS_LAMPS_X
+    if row == 0
+        start_x = CONTENT_LAMPS_X
+    let ?word = address_display
+    if row == 0
+        word = contents_display
+    let ?mask = 16384
+    if row == 0
+        mask = 32
+    for (let ?i = 0; i < count; i += 1)
+        let x = start_x + i * (LAMP_W + LAMP_GAP) + stdr.floor(i / 3) * LAMP_GROUP_GAP
+        let mark = 1
+        if i % 3 == 0
+            mark = 4
+        elif i % 3 == 1
+            mark = 2
+        label(scr, x + 5, y + 1, str(mark), C_WHITE, C_BLACK)
+        draw_lamp(scr, x, y + 10, (word % (mask * 2)) >= mask, tint)
+        mask = stdr.floor(mask / 2)
+    if row == 0
+        label(scr, RECORD_ITEM_X - 2, y - 7, "RECORD", C_WHITE, C_BLACK)
+        label(scr, RECORD_ITEM_X - 2, y, "ITEM", C_WHITE, C_BLACK)
+        label(scr, RECORD_WORD_X + 2, y, "WORD", C_WHITE, C_BLACK)
+        draw_button(scr, RECORD_ITEM_X, y + 10, 22, 22, ";", C_PANEL, C_BLACK)
+        draw_button(scr, RECORD_WORD_X, y + 10, 22, 22, ",", C_PANEL, C_BLACK)
+;
+
+: draw_control(scr = vimana.screen) (( -- ))
+    let y = PANEL_TOP + ROW_H * 2
+    fill_rect(scr, ROW_X, y, WIN_W - 24, 78, C_BLACK)
+    fill_rect(scr, ROW_X, y, ROW_W, 28, C_PANEL)
+    fill_rect(scr, ROW_X, y, ROW_W, 4, C_BLACK)
+    fill_rect(scr, RIGHT_EDGE_X, y, RIGHT_W, 28, C_BLACK)
+    label(scr, 20, y + 16, "CONTROL", C_BLACK, C_PANEL)
+
+    label(scr, 24, y + 40, "AC ON", C_WHITE, C_BLACK)
+    let ?ac_on_color = C_PANEL
+    if ac_on
+        ac_on_color = C_GREEN
+    draw_button(scr, 24, y + 56, 22, 22, "", ac_on_color, C_BLACK)
+    label(scr, 58, y + 40, "AC OFF", C_WHITE, C_BLACK)
+    let ?ac_off_color = C_RED
+    if ac_on
+        ac_off_color = C_PANEL
+    draw_button(scr, 58, y + 56, 22, 22, "", ac_off_color, C_BLACK)
+    label(scr, 96, y + 40, "DC ON", C_WHITE, C_BLACK)
+    let ?dc_on_color = C_PANEL
+    if dc_on
+        dc_on_color = C_GREEN
+    draw_button(scr, 92, y + 56, 22, 22, "", dc_on_color, C_BLACK)
+    label(scr, 126, y + 34, "RESET", C_WHITE, C_BLACK)
+    label(scr, 126, y + 44, "DC OFF", C_WHITE, C_BLACK)
+    let ?dc_off_color = C_RED
+    if dc_on
+        dc_off_color = C_PANEL
+    draw_button(scr, 126, y + 56, 22, 22, "", dc_off_color, C_BLACK)
+
+    label(scr, 170, y + 40, "STOP", C_WHITE, C_BLACK)
+    draw_button(scr, 170, y + 56, 22, 22, "STOP", C_RED, C_BLACK)
+    label(scr, 198, y + 40, "INIT", C_WHITE, C_BLACK)
+    draw_button(scr, 198, y + 56, 22, 22, "!", C_RED, C_BLACK)
+    label(scr, 236, y + 40, "BOOT", C_WHITE, C_BLACK)
+    draw_button(scr, 236, y + 56, 22, 22, "^", C_BLUE, C_BLACK)
+    label(scr, 278, y + 34, "CENTRAL", C_WHITE, C_BLACK)
+    label(scr, 278, y + 44, "CLR", C_WHITE, C_BLACK)
+    draw_button(scr, 278, y + 56, 22, 22, "CLR", C_PANEL, C_BLACK)
+    label(scr, 316, y + 40, "INST", C_WHITE, C_BLACK)
+    draw_button(scr, 316, y + 56, 22, 22, "INST", C_PANEL, C_BLACK)
+    let ?run_color = C_PANEL
+    if running
+        run_color = C_GREEN
+    label(scr, 354, y + 40, "RUN", C_WHITE, C_BLACK)
+    draw_button(scr, 354, y + 56, 22, 22, ">", run_color, C_BLACK)
+
+    label(scr, 404, y + 36, "ADDRESS", C_WHITE, C_BLACK)
+    label(scr, 412, y + 46, "MODE", C_WHITE, C_BLACK)
+    let ?mode2_color = C_PANEL
+    let ?mode3_color = C_PANEL
+    if addr_mode == 2
+        mode2_color = C_LAMP_ON
+    if addr_mode == 3
+        mode3_color = C_LAMP_ON
+    draw_button(scr, 416, y + 56, 22, 12, "2", mode2_color, C_BLACK)
+    draw_button(scr, 416, y + 72, 22, 12, "3", mode3_color, C_BLACK)
+
+    label(scr, 126, y + 78, "H O N E Y W E L L   2 0 0", C_WHITE, C_BLACK)
+
+    for (let ?i = 0; i < CONTROL_BITS; i += 1)
+        let x = CONTROL_LAMPS_X + i * 20
+        if i > 0
+            x += LAMP_GROUP_GAP
+        let mask = 8
+        let ?mark = 4
+        if i == 1
+            mask = 4
+            mark = 2
+        elif i == 2
+            mask = 2
+            mark = 1
+        elif i == 3
+            mask = 1
+        label(scr, x + 5, y + 1, str(mark), C_WHITE, C_BLACK)
+        draw_lamp(scr, x, y + 10, (control_display % (mask * 2)) >= mask, C_LAMP_ON)
+
+    label(scr, 470, y + 66, status, C_WHITE, C_BLACK)
+;
+
+: draw_display_box(scr = vimana.screen) (( -- ))
+    fill_rect(scr, RIGHT_EDGE_X, 8, RIGHT_W, 16, C_PANEL)
+    label(scr, 572, 36, "DISPLAY", C_WHITE, C_BLACK)
+    label(scr, 626, 36, "ENTER", C_WHITE, C_BLACK)
+    fill_rect(scr, RIGHT_EDGE_X, 48, RIGHT_W, 4, C_PANEL)
+    draw_button(scr, 572, 44, 22, 22, "^", C_BLUE, C_BLACK)
+    draw_button(scr, 626, 44, 22, 22, "v", C_BLUE, C_BLACK)
+    label(scr, 572, 68, "DISPLAY", C_WHITE, C_BLACK)
+    fill_rect(scr, RIGHT_EDGE_X, 80, RIGHT_W, 4, C_PANEL)
+    draw_button(scr, 572, 76, 22, 22, "^", C_BLUE, C_BLACK)
+    draw_button(scr, 598, 76, 22, 22, "+", C_BLUE, C_BLACK)
+    draw_button(scr, 626, 76, 22, 22, "v", C_BLUE, C_BLACK)
+;
+
+: draw_sense_box(scr = vimana.screen) (( -- ))
+    fill_rect(scr, RIGHT_EDGE_X, 112, RIGHT_W, 70, C_PANEL)
+    label(scr, 572, 128, "SENSE", C_BLACK, C_PANEL)
+    for (let ?i = 0; i < 4; i += 1)
+        let x = 574 + i * 26
+        label(scr, x + 5, 144, str(4 - i), C_BLACK, C_PANEL)
+        let mask = 8
+        if i == 1
+            mask = 4
+        elif i == 2
+            mask = 2
+        elif i == 3
+            mask = 1
+        draw_lamp(scr, x, 152, (sense_display % (mask * 2)) >= mask, C_LAMP_ON)
+;
+
+: draw_panel(scr = vimana.screen) (( -- ))
+    scr.clear(C_BLACK)
+    fill_rect(scr, 0, 12, WIN_W, 4, C_BLACK)
+    fill_rect(scr, 0, WIN_H - 16, WIN_W, 4, C_BLACK)
+    draw_bit_row(scr, PANEL_TOP, "CONTENTS", 0, CONTENT_BITS, C_LAMP_ON)
+    draw_bit_row(scr, PANEL_TOP + ROW_H, "ADDRESS", 1, ADDRESS_BITS, C_LAMP_ON)
+    draw_control(scr)
+    draw_display_box(scr)
+    draw_sense_box(scr)
+;
+
+: draw_cursor(scr = vimana.screen, dev = vimana.device) (( -- ))
+    scr.set_auto(0x00).set_addr(CURSOR_ADDR).set_x(dev.pointer_x()).set_y(dev.pointer_y()).sprite(0x85)
+;
+
+: in_rect(mx = num, my = num, x = num, y = num, w = num, h = num) (( bool ))
+    <- mx >= x && mx < x + w && my >= y && my < y + h
+;
+
+: toggle_row(mx = num, my = num, y = num, row = num, count = num) (( bool ))
+    let ?start_x = ADDRESS_LAMPS_X
+    if row == 0
+        start_x = CONTENT_LAMPS_X
+    for (let ?i = 0; i < count; i += 1)
+        let x = start_x + i * (LAMP_W + LAMP_GAP) + stdr.floor(i / 3) * LAMP_GROUP_GAP
+        if in_rect(mx, my, x, y + 10, LAMP_W, LAMP_H)
+            let mask = 1
+            let ?shift = count - i - 1
+            for (let ?j = 0; j < shift; j += 1)
+                mask = mask * 2
+            let ?word = contents_display
+            if row != 0
+                word = address_display
+            if (word % (mask * 2)) >= mask
+                word -= mask
+            else
+                word += mask
+            set_panel_word(row, word)
+            <- true
+    if in_rect(mx, my, CLEAR_X, y + 10, 22, 22)
+        for (let ?i = 0; i < count; i += 1)
+            set_bit(row, i, false)
+        <- true
+    <- false
+;
+
+: handle_mouse(dev = vimana.device) (( -- ))
+    if !dev.mouse_pressed(vimana.mouse_left)
+        <-
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    if toggle_row(mx, my, PANEL_TOP, 0, CONTENT_BITS)
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, RECORD_ITEM_X, PANEL_TOP + 10, 22, 22)
+        pc = addr_index()
+        status = "ITEM"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, RECORD_WORD_X, PANEL_TOP + 10, 22, 22)
+        store_word()
+        <-
+    if toggle_row(mx, my, PANEL_TOP + ROW_H, 1, ADDRESS_BITS)
+        needs_redraw = true
+        <-
+    let cy = PANEL_TOP + ROW_H * 2
+    if in_rect(mx, my, 24, cy + 56, 22, 22)
+        ac_on = true
+        status = "AC ON"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 58, cy + 56, 22, 22)
+        ac_on = false
+        running = false
+        status = "AC OFF"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 92, cy + 56, 22, 22)
+        dc_on = true
+        status = "DC ON"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 126, cy + 56, 22, 22)
+        dc_on = false
+        running = false
+        status = "DC OFF"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 170, cy + 56, 28, 22)
+        running = false
+        status = "STOP"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 198, cy + 56, 22, 22)
+        initialize()
+        <-
+    if in_rect(mx, my, 236, cy + 56, 22, 22)
+        bootstrap()
+        <-
+    if in_rect(mx, my, 278, cy + 56, 22, 22)
+        clear_all()
+        <-
+    if in_rect(mx, my, 316, cy + 56, 22, 22)
+        load_word()
+        <-
+    if in_rect(mx, my, 354, cy + 56, 22, 22)
+        running = !running
+        status = "RUN"
+        if !running
+            status = "STOP"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 416, cy + 56, 22, 12)
+        addr_mode = 2
+        status = "MODE 2"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 416, cy + 72, 22, 12)
+        addr_mode = 3
+        status = "MODE 3"
+        needs_redraw = true
+        <-
+    if in_rect(mx, my, 572, 44, 22, 22)
+        bump_addr(1)
+        <-
+    if in_rect(mx, my, 626, 44, 22, 22)
+        bump_addr(-1)
+        <-
+    if in_rect(mx, my, 572, 76, 22, 22)
+        bump_contents(1)
+        <-
+    if in_rect(mx, my, 598, 76, 22, 22)
+        store_word()
+        <-
+    if in_rect(mx, my, 626, 76, 22, 22)
+        bump_contents(-1)
+        <-
+    for (let ?i = 0; i < CONTROL_BITS; i += 1)
+        let x = CONTROL_LAMPS_X + i * 20
+        if i > 0
+            x += LAMP_GROUP_GAP
+        if in_rect(mx, my, x, cy + 10, LAMP_W, LAMP_H)
+            let mask = 8
+            if i == 1
+                mask = 4
+            elif i == 2
+                mask = 2
+            elif i == 3
+                mask = 1
+            if (control_display % (mask * 2)) >= mask
+                control_display -= mask
+                control[i] = false
+            else
+                control_display += mask
+                control[i] = true
+            needs_redraw = true
+            <-
+    for (let ?i = 0; i < 4; i += 1)
+        let x = 574 + i * 26
+        if in_rect(mx, my, x, 152, LAMP_W, LAMP_H)
+            sense[i] = !sense[i]
+            refresh_display_words()
+            needs_redraw = true
+            <-
+;
+
+: step_machine(now = num) (( -- ))
+    if !running
+        <-
+    if now - last_step < 140
+        <-
+    last_step = now
+    execute_step()
+;
+
+: apply_palette(scr = vimana.screen) (( -- ))
+    scr.set_palette(C_BLACK, "#000000")
+       .set_palette(C_WHITE, "#ffffff")
+       .set_palette(C_PANEL, "#cccccc")
+       .set_palette(C_LAMP_ON, "#ffee33")
+       .set_palette(C_BLUE, "#3333ff")
+       .set_palette(C_GREEN, "#33ff33")
+       .set_palette(C_RED, "#ff3333")
+;
+
+-> ()
+    let sys = vimana.system()
+    let scr = vimana.screen("Honeywell 200", WIN_W, WIN_H, 1)
+    let dev = sys.device()
+    scr.set_cursor(CURSOR_ICN)
+    scr.hide_cursor()
+    apply_palette(scr)
+    honeywell_font.install(scr)
+    scr.set_sprite(CURSOR_ADDR, CURSOR_ICN, 0)
+    init_bits()
+    draw_panel(scr)
+    draw_cursor(scr, dev)
+    scr.present()
+    needs_redraw = false
+
+    sys.run(scr, () => {
+        dev.poll()
+        if dev.key_pressed(vimana.key_escape)
+            sys.quit()
+        let mx = dev.pointer_x()
+        let my = dev.pointer_y()
+        if mx != last_mx || my != last_my
+            needs_redraw = true
+            last_mx = mx
+            last_my = my
+        handle_mouse(dev)
+        step_machine(sys.ticks())
+        if !needs_redraw
+            <-
+        draw_panel(scr)
+        draw_cursor(scr, dev)
+        scr.present()
+        needs_redraw = false
+    })
+;
