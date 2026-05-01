@@ -19,6 +19,30 @@ bring vimana
     fill(scr, x + w - 1, y + 1, 1, h - 2, c)
 ;
 
+:: button_frame(scr = vimana.screen, x = num, y = num, w = num, h = num) (( -- ))
+    fill(scr, x, y, w, 1, 1)
+    fill(scr, x, y, 1, h, 1)
+    fill(scr, x, y + h - 1, w, 1, 2)
+    fill(scr, x + w - 1, y, 1, h, 2)
+;
+
+:: button_frame_pressed(scr = vimana.screen, x = num, y = num, w = num, h = num) (( -- ))
+    fill(scr, x, y, w, 1, 2)
+    fill(scr, x, y, 1, h, 2)
+    fill(scr, x, y + h - 1, w, 1, 1)
+    fill(scr, x + w - 1, y, 1, h, 1)
+;
+
+:: button(scr = vimana.screen, x = num, y = num, w = num, h = num, bg = num) (( -- ))
+    fill(scr, x, y, w, h, bg)
+    button_frame(scr, x, y, w, h)
+;
+
+:: button_pressed(scr = vimana.screen, x = num, y = num, w = num, h = num, bg = num) (( -- ))
+    fill(scr, x, y, w, h, bg)
+    button_frame_pressed(scr, x, y, w, h)
+;
+
 :: line(scr = vimana.screen, x0 = num, y0 = num, x1 = num, y1 = num, c = num) (( -- ))
     let ?dx = x1 - x0
     let ?dy = y1 - y0

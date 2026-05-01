@@ -74,6 +74,7 @@ def ?cursor_track = 0
 def ?play_step = 0
 def ?page = 0
 def ?playing = false
+def ?play_paused = false
 def ?bpm = 128
 def ?octave = 4
 def ?master = 12
@@ -90,6 +91,8 @@ def ?tracker_filename = "tracker.mod"
 def ?editing_filename = false
 def ?view_mode = 0
 def ?sample_view_index = 1
+def ?button_down = false
+def ?transport_btn_hover = -1
 def ?view_btn_hover = -1
 def ?sample_nav_hover = -1
 def ?sample_peaks_lo = []: [num]
@@ -1206,6 +1209,7 @@ def ?ch_retrigger = []: [num]
 
 : new_file(sys = vimana.system) (( -- ))
     playing = false
+    play_paused = false
     stop_all(sys)
     song_loaded = false
     song_duration_label = "00:00"
@@ -1273,6 +1277,7 @@ def ?ch_retrigger = []: [num]
     upload_mod_samples(sys, bytes)
     set_tracker_path(path)
     playing = false
+    play_paused = false
     setup_audio(sys)
     stop_all(sys)
     dirty = true
@@ -1282,21 +1287,28 @@ def ?ch_retrigger = []: [num]
 def ICN_NEW  = [0x007f, 0x4141, 0x4142, 0x457a]
 def ICN_OPEN = [0x007f, 0x556b, 0x556a, 0x557a]
 def ICN_SAVE = [0x0008, 0x2a14, 0x6314, 0x2a08]
-def ICN_PREV = [0x0204, 0x081f, 0x1f08, 0x0402]
-def ICN_NEXT = [0x4020, 0x10f8, 0xf810, 0x2040]
+def ICN_PREV = [0x0008, 0x1838, 0x7838, 0x1808]
+def ICN_NEXT = [0x0010, 0x181c, 0x1e1c, 0x1810]
+def TRANSPORT_Y = 28
+def TRANSPORT_BTN_H = FONT_H
+def TRANSPORT_PLAY_W = 56
+def TRANSPORT_STOP_W = 48
 def FILE_BTN_Y = 48
-def FILE_BTN_SIZE = 16
-def FILE_BTN_NEW_X = SCREEN_W - 80
+def FILE_BTN_SIZE = 20
+def FILE_BTN_PAD = 2
+def FILE_BTN_NEW_X = SCREEN_W - 92
 def FILE_BTN_OPEN_X = SCREEN_W - 64
-def FILE_BTN_SAVE_X = SCREEN_W - 32
+def FILE_BTN_SAVE_X = SCREEN_W - 36
+def TRANSPORT_STOP_X = FILE_BTN_SAVE_X + FILE_BTN_SIZE - TRANSPORT_STOP_W
+def TRANSPORT_PLAY_X = TRANSPORT_STOP_X - 8 - TRANSPORT_PLAY_W
 
 def VIEW_BTN_LABEL_GRID = "GRID"
 def VIEW_BTN_LABEL_SAMPLE = "SMPL"
-def VIEW_BTN_Y = 96
-def VIEW_BTN_H = FONT_H
-def VIEW_BTN_W = 32
+def VIEW_BTN_Y = 91
+def VIEW_BTN_H = FONT_H + 4
+def VIEW_BTN_W = 44
 def VIEW_BTN_GRID_X = 16
-def VIEW_BTN_SAMPLE_X = 56
+def VIEW_BTN_SAMPLE_X = 64
 
 def SAMPLE_NAV_Y = 148
 def SAMPLE_NAV_SIZE = 16
@@ -1352,6 +1364,20 @@ def ?file_btn_hover = -1
             tracker_draw.fill(scr, x + col * 2, y + row * 2, 2, 2, c)
 ;
 
+: draw_icon_button(scr = vimana.screen, x = num, y = num, size = num, icon = [num], fg = num, bg = num, down = bool) (( -- ))
+    let ?off = 0
+    if down
+        off = 1
+        tracker_draw.button_pressed(scr, x, y, size, size, bg)
+    else
+        tracker_draw.button(scr, x, y, size, size, bg)
+    put_icn_2x(scr, x + FILE_BTN_PAD + off, y + FILE_BTN_PAD + off, icon, fg, bg)
+    if down
+        tracker_draw.button_frame_pressed(scr, x, y, size, size)
+    else
+        tracker_draw.button_frame(scr, x, y, size, size)
+;
+
 : in_file_btn(dev = vimana.device, x = num) (( bool ))
     let mx = dev.pointer_x()
     let my = dev.pointer_y()
@@ -1372,15 +1398,56 @@ def ?file_btn_hover = -1
     let ?new_fg = 1
     let ?open_fg = 1
     let ?save_fg = 1
+    let ?new_bg = 0
+    let ?open_bg = 0
+    let ?save_bg = 0
     if file_btn_hover == 0
         new_fg = 3
+        new_bg = 2
     if file_btn_hover == 1
         open_fg = 3
+        open_bg = 2
     if file_btn_hover == 2
         save_fg = 3
-    put_icn_2x(scr, FILE_BTN_NEW_X,  FILE_BTN_Y, ICN_NEW,  new_fg,  0)
-    put_icn_2x(scr, FILE_BTN_OPEN_X, FILE_BTN_Y, ICN_OPEN, open_fg, 0)
-    put_icn_2x(scr, FILE_BTN_SAVE_X, FILE_BTN_Y, ICN_SAVE, save_fg, 0)
+        save_bg = 2
+    let new_down = button_down && file_btn_hover == 0
+    let open_down = button_down && file_btn_hover == 1
+    let save_down = button_down && file_btn_hover == 2
+    draw_icon_button(scr, FILE_BTN_NEW_X, FILE_BTN_Y, FILE_BTN_SIZE, ICN_NEW, new_fg, new_bg, new_down)
+    draw_icon_button(scr, FILE_BTN_OPEN_X, FILE_BTN_Y, FILE_BTN_SIZE, ICN_OPEN, open_fg, open_bg, open_down)
+    draw_icon_button(scr, FILE_BTN_SAVE_X, FILE_BTN_Y, FILE_BTN_SIZE, ICN_SAVE, save_fg, save_bg, save_down)
+;
+
+: in_transport_btn(dev = vimana.device, x = num, w = num) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= x && mx < x + w && my >= TRANSPORT_Y && my < TRANSPORT_Y + TRANSPORT_BTN_H
+;
+
+: hovered_transport_btn(dev = vimana.device) (( num ))
+    if in_transport_btn(dev, TRANSPORT_PLAY_X, TRANSPORT_PLAY_W)
+        <- 0
+    if in_transport_btn(dev, TRANSPORT_STOP_X, TRANSPORT_STOP_W)
+        <- 1
+    <- -1
+;
+
+: draw_transport_buttons(scr = vimana.screen) (( -- ))
+    let ?play_fg = 1
+    let ?play_bg = 0
+    let ?stop_fg = 1
+    let ?stop_bg = 0
+    if transport_btn_hover == 0
+        play_fg = 3
+        play_bg = 2
+    if transport_btn_hover == 1
+        stop_fg = 3
+        stop_bg = 2
+    let ?play_label = "PLAY"
+    if playing
+        play_label = "PAUSE"
+    draw_text_button(scr, TRANSPORT_PLAY_X, TRANSPORT_Y, TRANSPORT_PLAY_W, TRANSPORT_BTN_H, play_label, play_fg, play_bg, button_down && transport_btn_hover == 0)
+    draw_text_button(scr, TRANSPORT_STOP_X, TRANSPORT_Y, TRANSPORT_STOP_W, TRANSPORT_BTN_H, "STOP", stop_fg, stop_bg, button_down && transport_btn_hover == 1)
 ;
 
 : in_view_btn(dev = vimana.device, x = num) (( bool ))
@@ -1412,8 +1479,10 @@ def ?file_btn_hover = -1
         grid_fg = 3
     if view_btn_hover == 1 && view_mode != 1
         sample_fg = 3
-    scr.put_text(VIEW_BTN_GRID_X,   VIEW_BTN_Y, VIEW_BTN_LABEL_GRID,   grid_fg,   grid_bg)
-    scr.put_text(VIEW_BTN_SAMPLE_X, VIEW_BTN_Y, VIEW_BTN_LABEL_SAMPLE, sample_fg, sample_bg)
+    let grid_down = button_down && view_btn_hover == 0
+    let sample_down = button_down && view_btn_hover == 1
+    draw_text_button(scr, VIEW_BTN_GRID_X, VIEW_BTN_Y, VIEW_BTN_W, VIEW_BTN_H, VIEW_BTN_LABEL_GRID, grid_fg, grid_bg, grid_down)
+    draw_text_button(scr, VIEW_BTN_SAMPLE_X, VIEW_BTN_Y, VIEW_BTN_W, VIEW_BTN_H, VIEW_BTN_LABEL_SAMPLE, sample_fg, sample_bg, sample_down)
 ;
 
 : in_sample_nav(dev = vimana.device, x = num) (( bool ))
@@ -1948,13 +2017,31 @@ def ?file_btn_hover = -1
     sample_peaks_w = plot_w
 ;
 
-: draw_field_btn(scr = vimana.screen, x = num, y = num, label = string, hover = bool) (( -- ))
+: draw_text_button(scr = vimana.screen, x = num, y = num, w = num, h = num, label = string, fg = num, bg = num, down = bool) (( -- ))
+    let ?tx = x + stdr.floor((w - stdr.len(label) * 9) / 2)
+    let ?ty = y
+    if tx < x + 2
+        tx = x + 2
+    if down
+        tx += 1
+        ty += 1
+        tracker_draw.button_pressed(scr, x, y, w, h, bg)
+    else
+        tracker_draw.button(scr, x, y, w, h, bg)
+    scr.put_text(tx, ty + 2, label, fg, bg)
+    if down
+        tracker_draw.button_frame_pressed(scr, x, y, w, h)
+    else
+        tracker_draw.button_frame(scr, x, y, w, h)
+;
+
+: draw_field_btn(scr = vimana.screen, x = num, y = num, w = num, label = string, hover = bool) (( -- ))
     let ?fg = 1
     let ?bg = 0
     if hover
         fg = 0
         bg = 3
-    scr.put_text(x, y, label, fg, bg)
+    draw_text_button(scr, x, y, w, FONT_H, label, fg, bg, hover && button_down)
 ;
 
 : draw_sample_field(scr = vimana.screen, x = num, w = num, label = string, value = string, field_id = num, dec_btn = num, inc_btn = num) (( -- ))
@@ -1962,10 +2049,10 @@ def ?file_btn_hover = -1
     if sample_field_hover == field_id && field_id != 0
         tracker_draw.fill(scr, x, SAMPLE_FIELDS_Y, w, FONT_H, 2)
         bg = 2
-    draw_field_btn(scr, x, SAMPLE_FIELDS_Y, "[-]", sample_btn_hover == dec_btn)
+    draw_field_btn(scr, x, SAMPLE_FIELDS_Y, SF_BTN_W, "-", sample_btn_hover == dec_btn)
     let inner = " " + label + " " + value
     scr.put_text(x + SF_BTN_W, SAMPLE_FIELDS_Y, inner, 1, bg)
-    draw_field_btn(scr, x + w - SF_BTN_W, SAMPLE_FIELDS_Y, "[+]", sample_btn_hover == inc_btn)
+    draw_field_btn(scr, x + w - SF_BTN_W, SAMPLE_FIELDS_Y, SF_BTN_W, "+", sample_btn_hover == inc_btn)
 ;
 
 : draw_sample_view(scr = vimana.screen) (( -- ))
@@ -1981,8 +2068,26 @@ def ?file_btn_hover = -1
         nav_prev = 3
     if sample_nav_hover == 1
         nav_next = 3
+    let prev_down = button_down && sample_nav_hover == 0
+    let next_down = button_down && sample_nav_hover == 1
+    if prev_down
+        tracker_draw.button_pressed(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
+    else
+        tracker_draw.button(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
     put_icn_2x(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, ICN_PREV, nav_prev, 0)
+    if prev_down
+        tracker_draw.button_frame_pressed(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
+    else
+        tracker_draw.button_frame(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
+    if next_down
+        tracker_draw.button_pressed(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
+    else
+        tracker_draw.button(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
     put_icn_2x(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, ICN_NEXT, nav_next, 0)
+    if next_down
+        tracker_draw.button_frame_pressed(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
+    else
+        tracker_draw.button_frame(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
 
     let slot_label = "SMP " + tracker_mod.hex2(i)
     scr.put_text(SAMPLE_NEXT_X + SAMPLE_NAV_SIZE + 8, SAMPLE_TITLE_Y, slot_label, 3, 0)
@@ -2007,7 +2112,7 @@ def ?file_btn_hover = -1
     if sample_load_hover
         load_fg = 0
         load_bg = 3
-    scr.put_text(SAMPLE_LOAD_X, SAMPLE_TITLE_Y, "[LOAD]", load_fg, load_bg)
+    draw_text_button(scr, SAMPLE_LOAD_X, SAMPLE_TITLE_Y, SAMPLE_LOAD_W, FONT_H, "LOAD", load_fg, load_bg, sample_load_hover && button_down)
 
     let len = sample_length[i]
     scr.put_text(SAMPLE_LEN_LABEL_X, SAMPLE_TITLE_Y, "LEN " + tracker_mod.hex3(len), 1, 0)
@@ -2033,9 +2138,9 @@ def ?file_btn_hover = -1
     let cut_hover = sample_action_hover == 0
     let loop_hover = sample_action_hover == 1
     let clear_hover = sample_action_hover == 2
-    draw_field_btn(scr, SACT_CUT_X, SAMPLE_ACTIONS_Y, "[CUT]", cut_hover)
-    draw_field_btn(scr, SACT_LOOP_X, SAMPLE_ACTIONS_Y, "[SET LOOP]", loop_hover)
-    draw_field_btn(scr, SACT_CLEAR_X, SAMPLE_ACTIONS_Y, "[CLR SEL]", clear_hover)
+    draw_field_btn(scr, SACT_CUT_X, SAMPLE_ACTIONS_Y, SACT_CUT_W, "CUT", cut_hover)
+    draw_field_btn(scr, SACT_LOOP_X, SAMPLE_ACTIONS_Y, SACT_LOOP_W, "SET LOOP", loop_hover)
+    draw_field_btn(scr, SACT_CLEAR_X, SAMPLE_ACTIONS_Y, SACT_CLEAR_W, "CLR SEL", clear_hover)
     if sample_sel_start >= 0 && sample_sel_end > sample_sel_start
         scr.put_text(SACT_INFO_X, SAMPLE_ACTIONS_Y, "SEL " + tracker_mod.hex3(sample_sel_start) + "-" + tracker_mod.hex3(sample_sel_end), 3, 0)
     else
@@ -2327,6 +2432,7 @@ def ?file_btn_hover = -1
         scope_tick += 1
     scr.clear(0)
     draw_header(scr)
+    draw_transport_buttons(scr)
     draw_file_buttons(scr)
 
     if show_help
@@ -2404,18 +2510,7 @@ def ?file_btn_hover = -1
     sys.end_audio()
 ;
 
-: song_setup(sys = vimana.system) (( -- ))
-    -- Sustained envelope so notes hold flat across volume slides; brief
-    -- release so stop_voice between rows doesn't click.
-    sys.begin_audio()
-    sys.set_master_volume(master)
-    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
-        sys.stop_voice(ch)
-        sys.set_envelope(ch, 0, 0, 15, 1)
-        sys.set_filter_route(ch, 0)
-    sys.set_pulse_width(2, 96)
-    sys.set_filter(cutoff, resonance, filter_mode)
-    sys.end_audio()
+: reset_song_playhead() (( -- ))
     play_order = 0
     play_row = 0
     play_tick = 0
@@ -2444,6 +2539,61 @@ def ?file_btn_hover = -1
         ch_tremolo_depth[ch] = 0
         ch_note_cut[ch] = -1
         ch_retrigger[ch] = 0
+;
+
+: song_setup(sys = vimana.system) (( -- ))
+    -- Sustained envelope so notes hold flat across volume slides; brief
+    -- release so stop_voice between rows doesn't click.
+    sys.begin_audio()
+    sys.set_master_volume(master)
+    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
+        sys.stop_voice(ch)
+        sys.set_envelope(ch, 0, 0, 15, 1)
+        sys.set_filter_route(ch, 0)
+    sys.set_pulse_width(2, 96)
+    sys.set_filter(cutoff, resonance, filter_mode)
+    sys.end_audio()
+;
+
+: start_playback(sys = vimana.system) (( -- ))
+    playing = true
+    if song_loaded
+        song_setup(sys)
+        play_step = (play_order * 64 + play_row) % total_steps()
+        last_tick = sys.ticks() - tempo_tick_ms()
+    else
+        if !play_paused
+            play_step = cursor_step
+        last_tick = sys.ticks()
+        trigger_step(sys, play_step)
+    play_paused = false
+    dirty = true
+;
+
+: pause_playback(sys = vimana.system) (( -- ))
+    playing = false
+    play_paused = true
+    if song_loaded
+        play_tick = 0
+    stop_all(sys)
+    dirty = true
+;
+
+: stop_playback(sys = vimana.system) (( -- ))
+    pause_playback(sys)
+    play_paused = false
+    if song_loaded
+        reset_song_playhead()
+    else
+        play_step = 0
+    dirty = true
+;
+
+: toggle_playback(sys = vimana.system) (( -- ))
+    if playing
+        pause_playback(sys)
+    else
+        start_playback(sys)
 ;
 
 : trigger_step(sys = vimana.system, step = num) (( -- ))
@@ -2555,23 +2705,9 @@ def ?file_btn_hover = -1
             <-
 
     if dev.key_pressed(KEY_ESCAPE)
-        playing = false
-        stop_all(sys)
-        dirty = true
+        stop_playback(sys)
     if dev.key_pressed(KEY_SPACE)
-        playing = !playing
-        if playing
-            if song_loaded
-                song_setup(sys)
-                play_step = 0
-                last_tick = sys.ticks() - tempo_tick_ms()
-            else
-                play_step = cursor_step
-                last_tick = sys.ticks()
-                trigger_step(sys, play_step)
-        else
-            stop_all(sys)
-        dirty = true
+        toggle_playback(sys)
     if dev.key_pressed(KEY_RETURN)
         trigger_step(sys, cursor_step)
         dirty = true
@@ -2659,6 +2795,14 @@ def ?file_btn_hover = -1
 ;
 
 : handle_mouse(sys = vimana.system, dev = vimana.device, fsys = vimana.file) (( -- ))
+    let new_button_down = dev.mouse_down(vimana.mouse_left)
+    if new_button_down != button_down
+        button_down = new_button_down
+        dirty = true
+    let new_transport_hover = hovered_transport_btn(dev)
+    if new_transport_hover != transport_btn_hover
+        transport_btn_hover = new_transport_hover
+        dirty = true
     let new_hover = hovered_file_btn(dev)
     if new_hover != file_btn_hover
         file_btn_hover = new_hover
@@ -2735,6 +2879,12 @@ def ?file_btn_hover = -1
         <-
     elif editing_filename
         finish_filename_edit()
+    if transport_btn_hover == 0
+        toggle_playback(sys)
+        <-
+    if transport_btn_hover == 1
+        stop_playback(sys)
+        <-
     if file_btn_hover == 0
         new_file(sys)
         <-
