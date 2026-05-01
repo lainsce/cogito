@@ -161,7 +161,11 @@ def ?log_buf_len = 0
 ;
 
 : is_motd_line(line = string) (( bool ))
-    <- !has_nick(line) && !is_local_emote(line)
+    <- !has_nick(line) && stdr.starts_with(line, "MOTD ")
+;
+
+: motd_text(line = string) (( string ))
+    <- stdr.slice(line, 5, stdr.len(line))
 ;
 
 : trim_store() (( -- ))
@@ -183,7 +187,7 @@ def ?log_buf_len = 0
 
 : hist_append(line = string) (( -- ))
     if stdr.len(hist_motd) == 0 && is_motd_line(line)
-        hist_motd = line
+        hist_motd = motd_text(line)
     stdr.push(hist_lines, line)
     hist_total = hist_total + stdr.len(line)
     if hist_replace
@@ -224,7 +228,7 @@ def ?log_buf_len = 0
     for (let ?i = 0; i < total; i += 1)
         let line = stdr.str(lines[i] ?? "")
         if stdr.len(store_motd) == 0 && is_motd_line(line)
-            store_motd = line
+            store_motd = motd_text(line)
         stdr.push(store_messages, line)
         store_total = store_total + stdr.len(line)
         trim_store()
@@ -232,7 +236,7 @@ def ?log_buf_len = 0
 
 : store_append(line = string) (( -- ))
     if stdr.len(store_motd) == 0 && is_motd_line(line)
-        store_motd = line
+        store_motd = motd_text(line)
     stdr.push(store_messages, line)
     store_total = store_total + stdr.len(line)
     trim_store()
@@ -293,8 +297,8 @@ def ?log_buf_len = 0
     store_append(line)
     append_log_line(line)
     nanovine_model.add_message(line)
-    if !has_nick(line) && !is_local_emote(line) && stdr.len(nanovine_model.get_motd()) == 0
-        nanovine_model.set_motd(line)
+    if stdr.len(nanovine_model.get_motd()) == 0 && is_motd_line(line)
+        nanovine_model.set_motd(motd_text(line))
 ;
 
 : should_log_line(line = string) (( bool ))
@@ -436,9 +440,7 @@ def ?log_buf_len = 0
 
     if now - poll_last > 4000
         if hist_state == 0 && pending_send_acks == 0
-            begin_history(true)
-            sys.proc_write(proc, "LAST 20\n")
-            poll_last = now
+            request_skip(sys, now)
 
     if hist_state == 0
         for (;;)
