@@ -1,0 +1,819 @@
+cask tracker_ui
+
+bring stdr
+bring vimana
+bring tracker_constants
+bring tracker_draw
+bring tracker_state
+bring tracker_mod
+bring tracker_samples
+bring tracker_editor
+bring tracker_playback
+
+:: put_icn_2x(scr = vimana.screen, x = num, y = num, icon = [num], fg = num, bg = num) (( -- ))
+    for (let ?row = 0; row < 8; row += 1)
+        let word = icon[stdr.floor(row / 2)]
+        let ?byte = word % 256
+        if row % 2 == 0
+            byte = stdr.floor(word / 256) % 256
+        let py = y + row * 2
+        for (let ?col = 0; col < 8; col += 1)
+            let mask = 1 << (7 - col)
+            let ?c = bg
+            if stdr.floor(byte / mask) % 2 == 1
+                c = fg
+            tracker_draw.fill(scr, x + col * 2, py, 2, 2, c)
+;
+
+:: draw_icon_button(scr = vimana.screen, x = num, y = num, size = num, icon = [num], fg = num, bg = num, down = bool) (( -- ))
+    let ?off = 0
+    if down
+        off = 1
+        tracker_draw.button_pressed(scr, x, y, size, size, bg)
+    else
+        tracker_draw.button(scr, x, y, size, size, bg)
+    put_icn_2x(scr, x + tracker_constants.FILE_BTN_PAD + off, y + tracker_constants.FILE_BTN_PAD + off, icon, fg, bg)
+    if down
+        tracker_draw.button_frame_pressed(scr, x, y, size, size)
+    else
+        tracker_draw.button_frame(scr, x, y, size, size)
+;
+
+:: in_file_btn(dev = vimana.device, x = num) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= x && mx < x + tracker_constants.FILE_BTN_SIZE && my >= tracker_constants.FILE_BTN_Y && my < tracker_constants.FILE_BTN_Y + tracker_constants.FILE_BTN_SIZE
+;
+
+:: hovered_file_btn(dev = vimana.device) (( num ))
+    if in_file_btn(dev, tracker_constants.FILE_BTN_NEW_X)
+        <- 0
+    if in_file_btn(dev, tracker_constants.FILE_BTN_OPEN_X)
+        <- 1
+    if in_file_btn(dev, tracker_constants.FILE_BTN_SAVE_X)
+        <- 2
+    <- -1
+;
+
+:: draw_file_buttons(scr = vimana.screen) (( -- ))
+    let ?new_fg = 1
+    let ?open_fg = 1
+    let ?save_fg = 1
+    let ?new_bg = 0
+    let ?open_bg = 0
+    let ?save_bg = 0
+    if tracker_state.file_btn_hover == 0
+        new_fg = 3
+        new_bg = 2
+    if tracker_state.file_btn_hover == 1
+        open_fg = 3
+        open_bg = 2
+    if tracker_state.file_btn_hover == 2
+        save_fg = 3
+        save_bg = 2
+    let new_down = tracker_state.button_down && tracker_state.file_btn_hover == 0
+    let open_down = tracker_state.button_down && tracker_state.file_btn_hover == 1
+    let save_down = tracker_state.button_down && tracker_state.file_btn_hover == 2
+    draw_icon_button(scr, tracker_constants.FILE_BTN_NEW_X, tracker_constants.FILE_BTN_Y, tracker_constants.FILE_BTN_SIZE, tracker_constants.ICN_NEW, new_fg, new_bg, new_down)
+    draw_icon_button(scr, tracker_constants.FILE_BTN_OPEN_X, tracker_constants.FILE_BTN_Y, tracker_constants.FILE_BTN_SIZE, tracker_constants.ICN_OPEN, open_fg, open_bg, open_down)
+    draw_icon_button(scr, tracker_constants.FILE_BTN_SAVE_X, tracker_constants.FILE_BTN_Y, tracker_constants.FILE_BTN_SIZE, tracker_constants.ICN_SAVE, save_fg, save_bg, save_down)
+;
+
+:: in_transport_btn(dev = vimana.device, x = num, w = num) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= x && mx < x + w && my >= tracker_constants.TRANSPORT_Y && my < tracker_constants.TRANSPORT_Y + tracker_constants.TRANSPORT_BTN_H
+;
+
+:: hovered_transport_btn(dev = vimana.device) (( num ))
+    if in_transport_btn(dev, tracker_constants.TRANSPORT_PLAY_X, tracker_constants.TRANSPORT_PLAY_W)
+        <- 0
+    if in_transport_btn(dev, tracker_constants.TRANSPORT_STOP_X, tracker_constants.TRANSPORT_STOP_W)
+        <- 1
+    <- -1
+;
+
+:: draw_transport_buttons(scr = vimana.screen) (( -- ))
+    let ?play_fg = 1
+    let ?play_bg = 0
+    let ?stop_fg = 1
+    let ?stop_bg = 0
+    if tracker_state.transport_btn_hover == 0
+        play_fg = 3
+        play_bg = 2
+    if tracker_state.transport_btn_hover == 1
+        stop_fg = 3
+        stop_bg = 2
+    let ?play_label = "PLAY"
+    if tracker_state.playing
+        play_label = "PAUSE"
+    draw_text_button(scr, tracker_constants.TRANSPORT_PLAY_X, tracker_constants.TRANSPORT_Y, tracker_constants.TRANSPORT_PLAY_W, tracker_constants.TRANSPORT_BTN_H, play_label, play_fg, play_bg, tracker_state.button_down && tracker_state.transport_btn_hover == 0)
+    draw_text_button(scr, tracker_constants.TRANSPORT_STOP_X, tracker_constants.TRANSPORT_Y, tracker_constants.TRANSPORT_STOP_W, tracker_constants.TRANSPORT_BTN_H, "STOP", stop_fg, stop_bg, tracker_state.button_down && tracker_state.transport_btn_hover == 1)
+;
+
+:: in_view_btn(dev = vimana.device, x = num) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= x && mx < x + tracker_constants.VIEW_BTN_W && my >= tracker_constants.VIEW_BTN_Y && my < tracker_constants.VIEW_BTN_Y + tracker_constants.VIEW_BTN_H
+;
+
+:: hovered_view_btn(dev = vimana.device) (( num ))
+    if in_view_btn(dev, tracker_constants.VIEW_BTN_GRID_X)
+        <- 0
+    if in_view_btn(dev, tracker_constants.VIEW_BTN_SAMPLE_X)
+        <- 1
+    <- -1
+;
+
+:: draw_view_mode_buttons(scr = vimana.screen) (( -- ))
+    let ?grid_fg = 1
+    let ?grid_bg = 0
+    let ?sample_fg = 1
+    let ?sample_bg = 0
+    if tracker_state.view_mode == 0
+        grid_fg = 0
+        grid_bg = 3
+    if tracker_state.view_mode == 1
+        sample_fg = 0
+        sample_bg = 3
+    if tracker_state.view_btn_hover == 0 && tracker_state.view_mode != 0
+        grid_fg = 3
+    if tracker_state.view_btn_hover == 1 && tracker_state.view_mode != 1
+        sample_fg = 3
+    let grid_down = tracker_state.button_down && tracker_state.view_btn_hover == 0
+    let sample_down = tracker_state.button_down && tracker_state.view_btn_hover == 1
+    draw_text_button(scr, tracker_constants.VIEW_BTN_GRID_X, tracker_constants.VIEW_BTN_Y, tracker_constants.VIEW_BTN_W, tracker_constants.VIEW_BTN_H, tracker_constants.VIEW_BTN_LABEL_GRID, grid_fg, grid_bg, grid_down)
+    draw_text_button(scr, tracker_constants.VIEW_BTN_SAMPLE_X, tracker_constants.VIEW_BTN_Y, tracker_constants.VIEW_BTN_W, tracker_constants.VIEW_BTN_H, tracker_constants.VIEW_BTN_LABEL_SAMPLE, sample_fg, sample_bg, sample_down)
+;
+
+:: in_sample_nav(dev = vimana.device, x = num) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= x && mx < x + tracker_constants.SAMPLE_NAV_SIZE && my >= tracker_constants.SAMPLE_NAV_Y && my < tracker_constants.SAMPLE_NAV_Y + tracker_constants.SAMPLE_NAV_SIZE
+;
+
+:: hovered_sample_nav(dev = vimana.device) (( num ))
+    if in_sample_nav(dev, tracker_constants.SAMPLE_PREV_X)
+        <- 0
+    if in_sample_nav(dev, tracker_constants.SAMPLE_NEXT_X)
+        <- 1
+    <- -1
+;
+
+:: in_rect(dev = vimana.device, x = num, y = num, w = num, h = num) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= x && mx < x + w && my >= y && my < y + h
+;
+
+:: in_sample_load_btn(dev = vimana.device) (( bool ))
+    <- in_rect(dev, tracker_constants.SAMPLE_LOAD_X, tracker_constants.SAMPLE_TITLE_Y, tracker_constants.SAMPLE_LOAD_W, tracker_constants.FONT_H)
+;
+
+:: hovered_sample_field(dev = vimana.device) (( num ))
+    if in_rect(dev, tracker_constants.SAMPLE_NAME_X, tracker_constants.SAMPLE_TITLE_Y, tracker_constants.SAMPLE_NAME_W, tracker_constants.FONT_H)
+        <- 0
+    if !in_rect(dev, tracker_constants.GRID_X - 8, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.TRACKS * tracker_editor.cell_w(), tracker_constants.FONT_H)
+        <- -1
+    if in_rect(dev, tracker_constants.SF_VOL_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_VOL_W, tracker_constants.FONT_H)
+        <- 1
+    if in_rect(dev, tracker_constants.SF_FT_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_FT_W, tracker_constants.FONT_H)
+        <- 2
+    if in_rect(dev, tracker_constants.SF_LPS_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_LPS_W, tracker_constants.FONT_H)
+        <- 3
+    if in_rect(dev, tracker_constants.SF_LPL_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_LPL_W, tracker_constants.FONT_H)
+        <- 4
+    <- -1
+;
+
+:: hovered_sample_field_btn(dev = vimana.device) (( num ))
+    if !in_rect(dev, tracker_constants.GRID_X - 8, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.TRACKS * tracker_editor.cell_w(), tracker_constants.FONT_H)
+        <- -1
+    if in_rect(dev, tracker_constants.SF_VOL_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 0
+    if in_rect(dev, tracker_constants.SF_VOL_X + tracker_constants.SF_VOL_W - tracker_constants.SF_BTN_W, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 1
+    if in_rect(dev, tracker_constants.SF_FT_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 2
+    if in_rect(dev, tracker_constants.SF_FT_X + tracker_constants.SF_FT_W - tracker_constants.SF_BTN_W, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 3
+    if in_rect(dev, tracker_constants.SF_LPS_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 4
+    if in_rect(dev, tracker_constants.SF_LPS_X + tracker_constants.SF_LPS_W - tracker_constants.SF_BTN_W, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 5
+    if in_rect(dev, tracker_constants.SF_LPL_X, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 6
+    if in_rect(dev, tracker_constants.SF_LPL_X + tracker_constants.SF_LPL_W - tracker_constants.SF_BTN_W, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, tracker_constants.FONT_H)
+        <- 7
+    <- -1
+;
+
+:: hovered_sample_action(dev = vimana.device) (( num ))
+    if in_rect(dev, tracker_constants.SACT_CUT_X, tracker_constants.SAMPLE_ACTIONS_Y, tracker_constants.SACT_CUT_W, tracker_constants.FONT_H)
+        <- 0
+    if in_rect(dev, tracker_constants.SACT_LOOP_X, tracker_constants.SAMPLE_ACTIONS_Y, tracker_constants.SACT_LOOP_W, tracker_constants.FONT_H)
+        <- 1
+    if in_rect(dev, tracker_constants.SACT_CLEAR_X, tracker_constants.SAMPLE_ACTIONS_Y, tracker_constants.SACT_CLEAR_W, tracker_constants.FONT_H)
+        <- 2
+    <- -1
+;
+
+:: draw_text_button(scr = vimana.screen, x = num, y = num, w = num, h = num, label = string, fg = num, bg = num, down = bool) (( -- ))
+    let ?tx = x + stdr.floor((w - stdr.len(label) * 9) / 2)
+    let ?ty = y
+    if tx < x + 2
+        tx = x + 2
+    if down
+        tx += 1
+        ty += 1
+        tracker_draw.button_pressed(scr, x, y, w, h, bg)
+    else
+        tracker_draw.button(scr, x, y, w, h, bg)
+    scr.put_text(tx, ty + 2, label, fg, bg)
+    if down
+        tracker_draw.button_frame_pressed(scr, x, y, w, h)
+    else
+        tracker_draw.button_frame(scr, x, y, w, h)
+;
+
+:: draw_field_btn(scr = vimana.screen, x = num, y = num, w = num, label = string, hover = bool) (( -- ))
+    let ?fg = 1
+    let ?bg = 0
+    if hover
+        fg = 0
+        bg = 3
+    draw_text_button(scr, x, y, w, tracker_constants.FONT_H, label, fg, bg, hover && tracker_state.button_down)
+;
+
+:: draw_sample_field(scr = vimana.screen, x = num, w = num, label = string, value = string, field_id = num, dec_btn = num, inc_btn = num) (( -- ))
+    let ?bg = 0
+    if tracker_state.sample_field_hover == field_id && field_id != 0
+        tracker_draw.fill(scr, x, tracker_constants.SAMPLE_FIELDS_Y, w, tracker_constants.FONT_H, 2)
+        bg = 2
+    draw_field_btn(scr, x, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, "-", tracker_state.sample_btn_hover == dec_btn)
+    let inner = " " + label + " " + value
+    scr.put_text(x + tracker_constants.SF_BTN_W, tracker_constants.SAMPLE_FIELDS_Y, inner, 1, bg)
+    draw_field_btn(scr, x + w - tracker_constants.SF_BTN_W, tracker_constants.SAMPLE_FIELDS_Y, tracker_constants.SF_BTN_W, "+", tracker_state.sample_btn_hover == inc_btn)
+;
+
+:: draw_sample_view(scr = vimana.screen) (( -- ))
+    let area_x = tracker_constants.GRID_X
+    let area_y = tracker_constants.GRID_Y
+    let area_w = tracker_constants.TRACKS * tracker_editor.cell_w() - 8
+    let area_h = tracker_constants.VISIBLE_STEPS * tracker_editor.row_h()
+    let i = tracker_state.sample_view_index
+
+    let ?nav_prev = 1
+    let ?nav_next = 1
+    if tracker_state.sample_nav_hover == 0
+        nav_prev = 3
+    if tracker_state.sample_nav_hover == 1
+        nav_next = 3
+    let prev_down = tracker_state.button_down && tracker_state.sample_nav_hover == 0
+    let next_down = tracker_state.button_down && tracker_state.sample_nav_hover == 1
+    if prev_down
+        tracker_draw.button_pressed(scr, tracker_constants.SAMPLE_PREV_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE, 0)
+    else
+        tracker_draw.button(scr, tracker_constants.SAMPLE_PREV_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE, 0)
+    put_icn_2x(scr, tracker_constants.SAMPLE_PREV_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.ICN_PREV, nav_prev, 0)
+    if prev_down
+        tracker_draw.button_frame_pressed(scr, tracker_constants.SAMPLE_PREV_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE)
+    else
+        tracker_draw.button_frame(scr, tracker_constants.SAMPLE_PREV_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE)
+    if next_down
+        tracker_draw.button_pressed(scr, tracker_constants.SAMPLE_NEXT_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE, 0)
+    else
+        tracker_draw.button(scr, tracker_constants.SAMPLE_NEXT_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE, 0)
+    put_icn_2x(scr, tracker_constants.SAMPLE_NEXT_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.ICN_NEXT, nav_next, 0)
+    if next_down
+        tracker_draw.button_frame_pressed(scr, tracker_constants.SAMPLE_NEXT_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE)
+    else
+        tracker_draw.button_frame(scr, tracker_constants.SAMPLE_NEXT_X, tracker_constants.SAMPLE_NAV_Y, tracker_constants.SAMPLE_NAV_SIZE, tracker_constants.SAMPLE_NAV_SIZE)
+
+    let slot_label = "SMP " + tracker_mod.hex2(i)
+    scr.put_text(tracker_constants.SAMPLE_NEXT_X + tracker_constants.SAMPLE_NAV_SIZE + 8, tracker_constants.SAMPLE_TITLE_Y, slot_label, 3, 0)
+
+    let ?name = tracker_state.sample_name[i]
+    let ?name_fg = 3
+    let ?name_bg = 0
+    if tracker_state.editing_sample_name
+        name = name + "_"
+        name_fg = 0
+        name_bg = 3
+    elif tracker_state.sample_field_hover == 0
+        name_fg = 0
+        name_bg = 2
+    if stdr.len(name) == 0
+        name = "(empty)"
+    tracker_draw.fill(scr, tracker_constants.SAMPLE_NAME_X, tracker_constants.SAMPLE_TITLE_Y, tracker_constants.SAMPLE_NAME_W, tracker_constants.FONT_H, name_bg)
+    scr.put_text(tracker_constants.SAMPLE_NAME_X, tracker_constants.SAMPLE_TITLE_Y, name, name_fg, name_bg)
+
+    let ?load_fg = 1
+    let ?load_bg = 0
+    if tracker_state.sample_load_hover
+        load_fg = 0
+        load_bg = 3
+    draw_text_button(scr, tracker_constants.SAMPLE_LOAD_X, tracker_constants.SAMPLE_TITLE_Y, tracker_constants.SAMPLE_LOAD_W, tracker_constants.FONT_H, "LOAD", load_fg, load_bg, tracker_state.sample_load_hover && tracker_state.button_down)
+
+    let len = tracker_state.sample_length[i]
+    scr.put_text(tracker_constants.SAMPLE_LEN_LABEL_X, tracker_constants.SAMPLE_TITLE_Y, "LEN " + tracker_mod.hex3(len), 1, 0)
+
+    let vol_str = tracker_mod.hex2(tracker_state.sample_volume[i])
+    draw_sample_field(scr, tracker_constants.SF_VOL_X, tracker_constants.SF_VOL_W, "VOL", vol_str, 1, 0, 1)
+    let ?ft = tracker_state.sample_finetune[i]
+    let ?ft_str = ""
+    if ft >= 0
+        ft_str = "+" + str(ft)
+    else
+        ft_str = str(ft)
+    if stdr.len(ft_str) < 2
+        ft_str = " " + ft_str
+    draw_sample_field(scr, tracker_constants.SF_FT_X, tracker_constants.SF_FT_W, "FT", ft_str, 2, 2, 3)
+    let lps_str = tracker_mod.hex3(tracker_state.sample_loop_start[i])
+    draw_sample_field(scr, tracker_constants.SF_LPS_X, tracker_constants.SF_LPS_W, "LPS", lps_str, 3, 4, 5)
+    let ?lpl_str = "---"
+    if tracker_state.sample_loop[i] != 0
+        lpl_str = tracker_mod.hex3(tracker_state.sample_loop_len[i])
+    draw_sample_field(scr, tracker_constants.SF_LPL_X, tracker_constants.SF_LPL_W, "LPL", lpl_str, 4, 6, 7)
+
+    let cut_hover = tracker_state.sample_action_hover == 0
+    let loop_hover = tracker_state.sample_action_hover == 1
+    let clear_hover = tracker_state.sample_action_hover == 2
+    draw_field_btn(scr, tracker_constants.SACT_CUT_X, tracker_constants.SAMPLE_ACTIONS_Y, tracker_constants.SACT_CUT_W, "CUT", cut_hover)
+    draw_field_btn(scr, tracker_constants.SACT_LOOP_X, tracker_constants.SAMPLE_ACTIONS_Y, tracker_constants.SACT_LOOP_W, "SET LOOP", loop_hover)
+    draw_field_btn(scr, tracker_constants.SACT_CLEAR_X, tracker_constants.SAMPLE_ACTIONS_Y, tracker_constants.SACT_CLEAR_W, "CLR SEL", clear_hover)
+    if tracker_state.sample_sel_start >= 0 && tracker_state.sample_sel_end > tracker_state.sample_sel_start
+        scr.put_text(tracker_constants.SACT_INFO_X, tracker_constants.SAMPLE_ACTIONS_Y, "SEL " + tracker_mod.hex3(tracker_state.sample_sel_start) + "-" + tracker_mod.hex3(tracker_state.sample_sel_end), 3, 0)
+    else
+        scr.put_text(tracker_constants.SACT_INFO_X, tracker_constants.SAMPLE_ACTIONS_Y, "SEL --", 2, 0)
+
+    let wave_x = area_x
+    let wave_y = area_y + tracker_constants.SAMPLE_WAVE_Y_OFF
+    let wave_w = area_w
+    let wave_h = area_h - tracker_constants.SAMPLE_WAVE_Y_OFF
+    if wave_h < 16
+        wave_h = 16
+    tracker_state.sample_wave_geom_x0 = wave_x
+    tracker_state.sample_wave_geom_y0 = wave_y
+    tracker_state.sample_wave_geom_w = wave_w
+    tracker_state.sample_wave_geom_h = wave_h
+    tracker_draw.box(scr, wave_x, wave_y, wave_w, wave_h, 2)
+    let mid = wave_y + stdr.floor(wave_h / 2)
+    tracker_draw.line(scr, wave_x + 1, mid, wave_x + wave_w - 2, mid, 2)
+    let slice = tracker_state.sample_bytes[i]
+    let n = stdr.len(slice)
+    if n <= 0 || len <= 0
+        scr.put_text(wave_x + 8, mid - stdr.floor(tracker_constants.FONT_H / 2), "NO SAMPLE DATA", 2, 0)
+        <-
+    let inner_x0 = wave_x + 2
+    let inner_x1 = wave_x + wave_w - 3
+    let inner_w = inner_x1 - inner_x0
+    if inner_w < 1
+        inner_w = 1
+    if tracker_state.sample_sel_start >= 0 && tracker_state.sample_sel_end > tracker_state.sample_sel_start
+        let sx0 = inner_x0 + stdr.floor((tracker_state.sample_sel_start * inner_w) / n)
+        let sx1 = inner_x0 + stdr.floor((tracker_state.sample_sel_end * inner_w) / n)
+        let sw = sx1 - sx0
+        if sw < 1
+            tracker_draw.line(scr, sx0, wave_y + 1, sx0, wave_y + wave_h - 2, 3)
+        else
+            tracker_draw.fill(scr, sx0, wave_y + 1, sw, wave_h - 2, 2)
+    let ?step = stdr.floor(inner_w / 256)
+    if step < 1
+        step = 1
+    let plot_w = stdr.floor(inner_w / step)
+    if plot_w < 1
+        plot_w = 1
+    let amp = stdr.floor(wave_h / 2) - 3
+    if amp < 1
+        amp = 1
+    if tracker_state.sample_loop[i] != 0
+        let ls = tracker_state.sample_loop_start[i]
+        let ll = tracker_state.sample_loop_len[i]
+        if ls > 0 && ls < n
+            let lx = inner_x0 + stdr.floor((ls * inner_w) / n)
+            tracker_draw.line(scr, lx, wave_y + 1, lx, wave_y + wave_h - 2, 2)
+        if ls + ll > 0 && ls + ll <= n
+            let lx2 = inner_x0 + stdr.floor(((ls + ll) * inner_w) / n)
+            tracker_draw.line(scr, lx2, wave_y + 1, lx2, wave_y + wave_h - 2, 2)
+    tracker_samples.recompute_sample_peaks(plot_w)
+    let peaks_lo = tracker_state.sample_peaks_lo
+    let peaks_hi = tracker_state.sample_peaks_hi
+    for (let ?px = 0; px < plot_w; px += 1)
+        let lo = peaks_lo[px]
+        let hi = peaks_hi[px]
+        let py_hi = mid - stdr.floor((hi * amp) / 128)
+        let py_lo = mid - stdr.floor((lo * amp) / 128)
+        let cx = inner_x0 + px * step
+        tracker_draw.fill(scr, cx, py_hi, step, py_lo - py_hi + 1, 3)
+;
+
+:: draw_header(scr = vimana.screen) (( -- ))
+    let ?file_fg = 3
+    let ?file_bg = 0
+    if tracker_state.editing_filename
+        file_fg = 0
+        file_bg = 3
+    scr.put_text(tracker_constants.HEADER_FILE_X, tracker_constants.HEADER_FILE_Y, "FILE ", 1, 0)
+    scr.put_text(tracker_constants.HEADER_FILE_X + 40, tracker_constants.HEADER_FILE_Y, tracker_editor.header_file_label(), file_fg, file_bg)
+    if tracker_state.song_loaded
+        scr.put_text(296, tracker_constants.HEADER_FILE_Y, "SMP ", 1, 0)
+        scr.put_text(328, tracker_constants.HEADER_FILE_Y, tracker_editor.current_sample_name(), 3, 0)
+    if tracker_state.song_loaded
+        scr.put_text(16, 50, "LEN ", 1, 0)
+        scr.put_text(48, 50, tracker_mod.hex2(tracker_state.song_length), 3, 0)
+        scr.put_text(80, 50, "PAT ", 1, 0)
+        scr.put_text(112, 50, tracker_mod.hex2(tracker_state.song_pattern_count), 3, 0)
+        scr.put_text(144, 50, "RST ", 1, 0)
+        scr.put_text(176, 50, tracker_mod.hex2(tracker_state.song_restart), 3, 0)
+        scr.put_text(296, 50, "SPD ", 1, 0)
+        scr.put_text(328, 50, tracker_mod.hex1(tracker_state.play_speed), 3, 0)
+        scr.put_text(352, 50, "BPM ", 1, 0)
+        scr.put_text(384, 50, str(tracker_state.play_tempo), 3, 0)
+        if tracker_state.playing
+            scr.put_text(512, 50, "ORD ", 1, 0)
+            scr.put_text(544, 50, tracker_mod.hex2(tracker_state.play_order), 3, 0)
+            scr.put_text(576, 50, "ROW ", 1, 0)
+            scr.put_text(608, 50, tracker_mod.hex2(tracker_state.play_row), 3, 0)
+        else
+            scr.put_text(512, 50, "ORD ", 1, 0)
+            scr.put_text(544, 50, tracker_mod.hex2(tracker_state.play_order), 2, 0)
+            scr.put_text(576, 50, "ROW ", 1, 0)
+            scr.put_text(608, 50, tracker_mod.hex2(tracker_state.play_row), 2, 0)
+        scr.put_text(680, 50, "DUR ", 1, 0)
+        scr.put_text(712, 50, tracker_state.song_duration_label, 3, 0)
+        <-
+    scr.put_text(16, 50, "BPM ", 1, 0)
+    scr.put_text(48, 50, str(tracker_state.bpm), 3, 0)
+    scr.put_text(88, 50, "OCT ", 1, 0)
+    scr.put_text(120, 50, tracker_mod.hex1(tracker_state.octave), 3, 0)
+    scr.put_text(152, 50, "VOL ", 1, 0)
+    scr.put_text(184, 50, tracker_mod.hex1(tracker_state.master), 3, 0)
+    scr.put_text(216, 50, "PAG ", 1, 0)
+    scr.put_text(248, 50, tracker_mod.hex1(tracker_state.page + 1) + "/" + tracker_mod.hex1(tracker_constants.PAGE_COUNT), 3, 0)
+    scr.put_text(384, 50, "FLT ", 1, 0)
+    scr.put_text(416, 50, tracker_mod.hex3(tracker_state.cutoff), 3, 0)
+    scr.put_text(472, 50, "RES ", 1, 0)
+    scr.put_text(504, 50, tracker_mod.hex1(tracker_state.resonance), 3, 0)
+    scr.put_text(536, 50, "MOD ", 1, 0)
+    scr.put_text(568, 50, tracker_mod.hex1(tracker_state.filter_mode), 3, 0)
+    if tracker_state.playing
+        scr.put_text(680, 50, ">>", 3, 0)
+    else
+        scr.put_text(680, 50, "--", 2, 0)
+;
+
+:: draw_pattern_map(scr = vimana.screen) (( -- ))
+    let cols = tracker_editor.map_cols()
+    let rows = stdr.floor(256 / cols)
+    let song_loaded = tracker_state.song_loaded
+    let song_length = tracker_state.song_length
+    let play_order = tracker_state.play_order
+    let selected_order = tracker_state.selected_order
+    let hover_index = tracker_state.pattern_hover_index
+    for (let ?ry = 0; ry < rows; ry += 1)
+        let row_start = ry * cols
+        let y = tracker_constants.MAP_Y + ry * tracker_constants.MAP_CELL_H
+        let major_row = ry % 4 == 0
+        let ?row_has_data = false
+        if song_loaded
+            for (let ?j = 0; j < cols; j += 1)
+                let k = row_start + j
+                if k < song_length && k < tracker_constants.MAX_ORDERS && tracker_state.song_orders[k] != 0
+                    row_has_data = true
+        for (let ?cx = 0; cx < cols; cx += 1)
+            let i = row_start + cx
+            let x = tracker_constants.MAP_X + cx * tracker_constants.MAP_CELL_W
+            let ?pat = 0
+            let ?col = 2
+            if song_loaded && i < song_length
+                if i < tracker_constants.MAX_ORDERS
+                    pat = tracker_state.song_orders[i]
+                col = 1
+            if song_loaded && i == play_order
+                col = 3
+            if song_loaded && i == selected_order
+                tracker_draw.fill(scr, x - 1, y - 1, tracker_constants.MAP_CELL_W, tracker_constants.MAP_CELL_H + 2, 2)
+                col = 0
+            if song_loaded && i == hover_index && i != selected_order
+                tracker_draw.box(scr, x - 1, y - 1, tracker_constants.MAP_CELL_W, tracker_constants.MAP_CELL_H + 2, 2)
+            if !row_has_data && major_row
+                if cx == 0
+                    tracker_draw.tiny_marker(scr, x, y, col)
+                else
+                    tracker_draw.tiny_dash2(scr, x, y, col)
+            elif pat == 0
+                tracker_draw.tiny_dash2(scr, x, y, col)
+            else
+                tracker_draw.tiny_hex2(scr, x, y, pat, col)
+;
+
+:: in_pattern_map(dev = vimana.device) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    let cols = tracker_editor.map_cols()
+    <- mx >= tracker_constants.MAP_X && mx < tracker_constants.MAP_X + cols * tracker_constants.MAP_CELL_W && my >= tracker_constants.MAP_Y && my < tracker_constants.MAP_Y + 32 * tracker_constants.MAP_CELL_H
+;
+
+:: pattern_map_index_at(dev = vimana.device) (( num ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    let cols = tracker_editor.map_cols()
+    let cx = stdr.floor((mx - tracker_constants.MAP_X) / tracker_constants.MAP_CELL_W)
+    let cy = stdr.floor((my - tracker_constants.MAP_Y) / tracker_constants.MAP_CELL_H)
+    if cx < 0 || cx >= cols || cy < 0 || cy >= 32
+        <- -1
+    let i = cy * cols + cx
+    if i < 0 || i >= tracker_constants.MAX_ORDERS
+        <- -1
+    <- i
+;
+
+:: scope_volume(track = num) (( num ))
+    if tracker_state.song_loaded && track < tracker_constants.MOD_CHANNELS
+        <- tracker_state.ch_volume[track]
+    if track >= tracker_constants.TRACKS
+        <- 0
+    let step = tracker_state.cursor_step
+    if tracker_state.playing
+        step = tracker_state.play_step
+    let k = tracker_editor.idx(step, track)
+    if k >= 0 && k < stdr.len(tracker_state.vols)
+        <- tracker_state.vols[k]
+    <- 0
+;
+
+:: scope_period(track = num) (( num ))
+    if tracker_state.song_loaded && track < tracker_constants.MOD_CHANNELS
+        <- tracker_state.ch_period[track]
+    <- 0
+;
+
+:: draw_scope(scr = vimana.screen, track = num, x = num) (( -- ))
+    let w = tracker_editor.cell_w() - 8
+    let y = tracker_constants.SCOPE_Y
+    let min_x = x + 2
+    let max_x = x + w - 4
+    let mid = y + stdr.floor(tracker_constants.SCOPE_H / 2) - 1
+    let vol = scope_volume(track)
+    let period = scope_period(track)
+    tracker_draw.box(scr, x, y, w, tracker_constants.SCOPE_H, 2)
+    if vol <= 0
+        <-
+    let ?max_vol = 15
+    if tracker_state.song_loaded && track < tracker_constants.MOD_CHANNELS
+        max_vol = 64
+    if max_vol <= 0
+        max_vol = 1
+    let ?amp = stdr.floor((vol * (stdr.floor(tracker_constants.SCOPE_H / 2) - 3)) / max_vol)
+    if amp < 1
+        amp = 1
+    let ?prev_x = min_x + 1
+    let ?prev_y = mid + 1
+    let cols = tracker_editor.scope_cols()
+    let span = max_x - min_x
+    let denom = cols - 1
+    let tick_step = tracker_state.scope_tick * (track + 1)
+    let ?period_offset = 0
+    if period > 0
+        period_offset = stdr.floor(4096 / period)
+    for (let ?i = 0; i < cols; i += 1)
+        let ?px = min_x
+        if denom > 0
+            px = min_x + stdr.floor((i * span) / denom)
+        let shape = (i * 5 + tick_step + period_offset) % 16
+        let py = mid + stdr.floor(((shape - 8) * amp) / 8)
+        if i > 0
+            tracker_draw.line(scr, prev_x, prev_y, px + 1, py + 1, 3)
+        tracker_draw.fill(scr, px, py, 2, 2, 3)
+        prev_x = px + 1
+        prev_y = py + 1
+;
+
+:: redraw_titlebar_span(scr = vimana.screen, x = num, w = num) (( -- ))
+    if w <= 0
+        <-
+    let tiles = stdr.floor((w + 7) / 8)
+    scr.set_auto(0x15).set_addr(tracker_constants.BG_ADDR).set_x(x).set_y(0)
+    for (let ?i = 0; i < tiles; i += 1)
+        scr.sprite(0x85)
+;
+
+:: draw_titlebar_decor(scr = vimana.screen) (( -- ))
+    scr.set_auto(0x00).set_x(scr.width() - 1).set_y(tracker_constants.TITLEBAR_EDGE_Y)
+    scr.pixel(0xa2)
+    scr.set_x(1)
+    scr.pixel(0xb2)
+;
+
+:: toggle_titlebar_shade(scr = vimana.screen) (( -- ))
+    if tracker_state.titlebar_shaded
+        tracker_state.titlebar_shaded = false
+        <-
+    tracker_state.titlebar_shaded = true
+;
+
+:: draw_titlebar_text(scr = vimana.screen, title = string) (( -- ))
+    let ?max_chars = stdr.floor((scr.width() - 48) / 8) - 2
+    if max_chars <= 0
+        <-
+    let ?body = title
+    if stdr.len(body) > max_chars
+        if max_chars > 3
+            body = stdr.slice(body, 0, max_chars - 3) + "..."
+        else
+            body = stdr.slice(body, 0, max_chars)
+    let label = " " + body + " "
+    let ?tx = stdr.floor((scr.width() - stdr.len(label) * 8) / 2)
+    if tx < 24
+        tx = 24
+    redraw_titlebar_span(scr, tx, stdr.len(label) * 8)
+    scr.put_text(tx, 1, label, vimana.color_fg, 2)
+;
+
+:: in_close_button(dev = vimana.device) (( bool ))
+    <- dev.pointer_x() >= 8 && dev.pointer_x() < 24 && dev.pointer_y() >= 0 && dev.pointer_y() < 16
+;
+
+:: in_titlebar(dev = vimana.device) (( bool ))
+    <- dev.pointer_y() >= 0 && dev.pointer_y() < tracker_constants.TITLEBAR_H
+;
+
+:: update_close_button(dev = vimana.device, sys = vimana.system) (( -- ))
+    let hover = in_close_button(dev)
+    if dev.mouse_pressed(vimana.mouse_left) && hover
+        tracker_state.close_button_active = true
+        <-
+    if !dev.mouse_down(vimana.mouse_left)
+        if tracker_state.close_button_active && hover
+            sys.quit()
+        tracker_state.close_button_active = false
+;
+
+:: update_titlebar(dev = vimana.device, sys = vimana.system, scr = vimana.screen) (( bool ))
+    if !tracker_state.titlebar_shaded && scr.height() > tracker_constants.TITLEBAR_SHADE_H
+        tracker_state.titlebar_saved_height = scr.height()
+    let hover = in_titlebar(dev)
+    if dev.mouse_pressed(vimana.mouse_left) && hover
+        tracker_state.titlebar_capture = true
+        if !in_close_button(dev)
+            let now = sys.ticks()
+            let dx = dev.pointer_x() - tracker_state.header_click_x
+            let dy = dev.pointer_y() - tracker_state.header_click_y
+            let dist = dx * dx + dy * dy
+            if now - tracker_state.header_click_time < tracker_constants.HEADER_DBLCLICK_MS && dist < tracker_constants.HEADER_DBLCLICK_DIST * tracker_constants.HEADER_DBLCLICK_DIST
+                toggle_titlebar_shade(scr)
+                tracker_state.header_click_time = 0
+            else
+                tracker_state.header_click_time = now
+                tracker_state.header_click_x = dev.pointer_x()
+                tracker_state.header_click_y = dev.pointer_y()
+    elif !dev.mouse_down(vimana.mouse_left)
+        tracker_state.titlebar_capture = false
+    update_close_button(dev, sys)
+    <- tracker_state.titlebar_capture || (hover && !dev.mouse_down(vimana.mouse_left))
+;
+
+:: draw_close_button(scr = vimana.screen) (( -- ))
+    let ?addr = tracker_constants.CLOSE_ADDR
+    if tracker_state.close_button_active
+        addr = tracker_constants.CLOSE_DOWN_ADDR
+    scr.set_auto(0x15).set_addr(addr).set_x(8).set_y(0)
+    scr.sprite(0x09)
+    scr.set_addr(addr).set_x(13).sprite(0x19)
+;
+
+:: in_grid_scrollbar(dev = vimana.device) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    let bar_x = tracker_constants.GRID_SCROLL_X
+    let bar_w = tracker_constants.GRID_SCROLL_W
+    let bar_y = tracker_constants.GRID_Y
+    let bar_h = tracker_constants.VISIBLE_STEPS * tracker_editor.row_h()
+    <- mx >= bar_x && mx < bar_x + bar_w && my >= bar_y && my < bar_y + bar_h
+;
+
+:: scrollbar_step_at(my = num) (( num ))
+    let pad = tracker_constants.GRID_SCROLL_PAD
+    let bar_y = tracker_constants.GRID_Y + pad
+    let bar_h = tracker_constants.VISIBLE_STEPS * tracker_editor.row_h() - pad * 2
+    if bar_h < 1
+        <- tracker_editor.page_start()
+    let ?rel = my - bar_y
+    if rel < 0
+        rel = 0
+    if rel >= bar_h
+        rel = bar_h - 1
+    let p_start = tracker_editor.page_start()
+    let total = tracker_editor.page_steps()
+    <- p_start + stdr.floor((rel * total) / bar_h)
+;
+
+:: in_grid_area(dev = vimana.device) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    let cw = tracker_editor.cell_w()
+    let rh = tracker_editor.row_h()
+    <- mx >= tracker_constants.GRID_X && mx < tracker_constants.GRID_X + tracker_constants.TRACKS * cw && my >= tracker_constants.GRID_Y && my < tracker_constants.GRID_Y + tracker_constants.VISIBLE_STEPS * rh
+;
+
+:: draw_grid_scrollbar(scr = vimana.screen, offset = num, total = num) (( -- ))
+    let bar_x = tracker_constants.GRID_SCROLL_X
+    let bar_w = tracker_constants.GRID_SCROLL_W
+    let pad = tracker_constants.GRID_SCROLL_PAD
+    let bar_y = tracker_constants.GRID_Y + pad
+    let bar_h = tracker_constants.VISIBLE_STEPS * tracker_editor.row_h() - pad * 2
+    let visible = tracker_constants.VISIBLE_STEPS
+    tracker_draw.fill_halftone(scr, bar_x, bar_y, bar_w, bar_h, 2)
+    if total <= visible
+        tracker_draw.fill(scr, bar_x, bar_y, bar_w, bar_h, 1)
+        <-
+    let ?thumb_h = stdr.floor((bar_h * visible) / total)
+    if thumb_h < 4
+        thumb_h = 4
+    if thumb_h > bar_h
+        thumb_h = bar_h
+    let span = total - visible
+    let ?thumb_off = 0
+    if span > 0
+        thumb_off = stdr.floor(((bar_h - thumb_h) * offset) / span)
+    if thumb_off < 0
+        thumb_off = 0
+    if thumb_off > bar_h - thumb_h
+        thumb_off = bar_h - thumb_h
+    tracker_draw.fill(scr, bar_x, bar_y + thumb_off, bar_w, thumb_h, 1)
+;
+
+:: draw(scr = vimana.screen) (( -- ))
+    if tracker_state.playing
+        tracker_state.page = stdr.floor(tracker_state.play_step / tracker_editor.page_steps())
+        tracker_state.scope_tick += 1
+    scr.clear(0)
+    draw_header(scr)
+    draw_transport_buttons(scr)
+    draw_file_buttons(scr)
+
+    if tracker_state.show_help
+        scr.put_text(16, 72, "LDUR move SPC play RET hit BKSP rest S+O/S files", 2, 0)
+        scr.put_text(16, 376, "Z-M notes {} page [] octave -+ bpm 1-5 wave QWERF filter", 2, 0)
+
+    let scope_cw = tracker_editor.cell_w()
+    let scope_label_y = tracker_constants.SCOPE_Y - tracker_constants.FONT_H
+    for (let ?t = 0; t < tracker_constants.TRACKS; t += 1)
+        let x = tracker_constants.GRID_X + t * scope_cw
+        scr.put_text(x, scope_label_y, "CH" + tracker_mod.hex1(t + 1) + " - " + tracker_editor.channel_type(t), 3, 0)
+        draw_scope(scr, t, x)
+
+    draw_pattern_map(scr)
+    draw_view_mode_buttons(scr)
+
+    if tracker_state.view_mode == 1
+        tracker_samples.clamp_sample_view()
+        draw_sample_view(scr)
+        <-
+
+    let ?p_start = tracker_editor.page_start()
+    let ?p_end = tracker_editor.page_end()
+    let ?first_step = p_start
+    if tracker_state.playing
+        p_start = tracker_editor.page_start()
+        p_end = tracker_editor.page_end()
+        first_step = tracker_state.play_step - 8
+    else
+        first_step = tracker_state.cursor_step - 8
+    if first_step < p_start
+        first_step = p_start
+    if first_step > p_end - tracker_constants.VISIBLE_STEPS
+        first_step = p_end - tracker_constants.VISIBLE_STEPS
+
+    draw_grid_scrollbar(scr, first_step - p_start, p_end - p_start)
+
+    let cw = tracker_editor.cell_w()
+    let rh = tracker_editor.row_h()
+    let row_fill_w = tracker_constants.TRACKS * cw - 8
+    let playing = tracker_state.playing
+    let play_step = tracker_state.play_step
+    let cursor_step = tracker_state.cursor_step
+    let cursor_track = tracker_state.cursor_track
+    for (let ?row = 0; row < tracker_constants.VISIBLE_STEPS; row += 1)
+        let s = first_step + row
+        let y = tracker_constants.GRID_Y + row * rh
+        let row_col = 1
+        let is_play_row = s == play_step && playing
+        if is_play_row
+            row_col = 3
+            tracker_draw.fill(scr, tracker_constants.GRID_X, y, row_fill_w, rh, 3)
+        scr.put_text(tracker_constants.GRID_X - 48, y, "00" + tracker_mod.hex2(s - p_start), row_col, 0)
+        for (let ?t = 0; t < tracker_constants.TRACKS; t += 1)
+            let x = tracker_constants.GRID_X + t * cw
+            let ?fg = 1
+            let ?bg = 0
+            if s == cursor_step && t == cursor_track
+                fg = 0
+                bg = 3
+                tracker_draw.fill(scr, x, y, cw, rh, 3)
+            elif is_play_row
+                fg = 0
+                bg = 3
+            scr.put_text(x, y, tracker_editor.song_step_text(s, t), fg, bg)
+;

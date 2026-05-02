@@ -1,0 +1,131 @@
+cask tracker_state
+
+-- Editor grid state
+def ?notes = []: [num]
+def ?vols = []: [num]
+def ?waves = []: [num]
+
+-- Cursor and playback state
+def ?cursor_step = 0
+def ?cursor_track = 0
+def ?play_step = 0
+def ?page = 0
+def ?playing = false
+def ?play_paused = false
+def ?bpm = 128
+def ?octave = 4
+def ?master = 12
+def ?cutoff = 1300
+def ?resonance = 4
+def ?filter_mode = 1
+def ?song_tick_acc = 0
+def ?last_tick = 0
+def ?scope_tick = 0
+def ?show_help = false
+def ?dirty = true
+def ?file_path = ""
+def ?tracker_filename = "tracker.mod"
+def ?editing_filename = false
+def ?view_mode = 0
+def ?sample_view_index = 1
+def ?button_down = false
+def ?transport_btn_hover = -1
+def ?view_btn_hover = -1
+def ?sample_nav_hover = -1
+
+-- Sample peaks cache for waveform display
+def ?sample_peaks_lo = []: [num]
+def ?sample_peaks_hi = []: [num]
+def ?sample_peaks_for = -1
+def ?sample_peaks_w = 0
+
+-- Pattern map selection/hover
+def ?selected_order = -1
+def ?pattern_hover_index = -1
+
+-- Sample name editing
+def ?editing_sample_name = false
+def ?sample_field_hover = -1
+def ?sample_btn_hover = -1
+def ?sample_load_hover = false
+
+-- Sample waveform selection/drag
+def ?sample_sel_start = -1
+def ?sample_sel_end = -1
+def ?sample_dragging = false
+def ?sample_drag_origin = -1
+def ?scrollbar_dragging = false
+def ?sample_action_hover = -1
+def ?sample_wave_geom_x0 = 0
+def ?sample_wave_geom_y0 = 0
+def ?sample_wave_geom_w = 0
+def ?sample_wave_geom_h = 0
+
+-- MOD song structure layer (separate from free-form editor grid)
+def ?song_loaded = false
+def ?song_orders = []: [num]
+def ?song_length = 0
+def ?song_pattern_count = 0
+def ?song_restart = 0
+def ?song_duration_label = "00:00"
+def ?song_period = []: [num]
+def ?song_inst = []: [num]
+def ?song_fx = []: [num]
+def ?song_param = []: [num]
+
+-- Sample metadata from MOD file
+def ?sample_volume = []: [num]
+def ?sample_wave = []: [num]
+def ?sample_finetune = []: [num]
+def ?sample_loop = []: [num]
+def ?sample_data_off = []: [num]
+def ?sample_length = []: [num]
+def ?sample_loop_start = []: [num]
+def ?sample_loop_len = []: [num]
+def ?sample_name = []: [string]
+def ?sample_bytes = []: [any]
+def ?song_arrays_ready = false
+
+-- MOD player runtime state
+def ?play_order = 0
+def ?play_row = 0
+def ?play_tick = 0
+def ?play_speed = 6
+def ?play_tempo = 125
+def ?play_break_row = -1
+def ?play_jump_order = -1
+def ?ch_period = []: [num]
+def ?ch_volume = []: [num]
+def ?ch_sample = []: [num]
+def ?ch_vslide_up = []: [num]
+def ?ch_vslide_down = []: [num]
+def ?ch_pslide_up = []: [num]
+def ?ch_pslide_down = []: [num]
+def ?ch_arp_x = []: [num]
+def ?ch_arp_y = []: [num]
+def ?ch_porta_target = []: [num]
+def ?ch_porta_speed = []: [num]
+def ?ch_vibrato_pos = []: [num]
+def ?ch_vibrato_speed = []: [num]
+def ?ch_vibrato_depth = []: [num]
+def ?ch_tremolo_pos = []: [num]
+def ?ch_tremolo_speed = []: [num]
+def ?ch_tremolo_depth = []: [num]
+def ?ch_note_cut = []: [num]
+def ?ch_retrigger = []: [num]
+
+-- File button hover state
+def ?file_btn_hover = -1
+
+-- Titlebar state
+def ?close_button_active = false
+def ?titlebar_capture = false
+def ?titlebar_shaded = false
+def ?titlebar_saved_height = 0
+def ?header_click_time = 0
+def ?header_click_x = 0
+def ?header_click_y = 0
+def ?last_mx = -1
+def ?last_my = -1
+def ?last_close_button_state = false
+def ?last_titlebar_shaded = false

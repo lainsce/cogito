@@ -1,0 +1,215 @@
+cask tracker_constants
+
+-- Screen and layout
+def SCREEN_W = 936
+def SCREEN_H = 417
+def SCALE = 1
+
+def PAGE_COUNT = 32
+def PAGE_STEPS = 64
+def STEPS = PAGE_COUNT * PAGE_STEPS
+def VISIBLE_STEPS = 15
+def TRACKS = 8
+def MOD_CHANNELS = 4
+
+def FONT_H = 17 -- 16 + 1px of space
+def CELL_W = 96
+def ROW_H = FONT_H
+def MAP_X = 16
+def MAP_Y = 148
+def MAP_CELL_W = 10
+def MAP_CELL_H = 8
+def MAP_COLS = 8
+def GRID_X = 148
+def GRID_Y = 148
+def SCOPE_Y = 92
+def SCOPE_H = 48
+def SCOPE_COLS = 24
+
+-- Key codes
+def KEY_RIGHT = 79
+def KEY_LEFT = 80
+def KEY_DOWN = 81
+def KEY_UP = 82
+def KEY_SPACE = 44
+def KEY_RETURN = 40
+def KEY_BACKSPACE = 42
+def KEY_ESCAPE = 41
+def KEY_LBRACKET = 47
+def KEY_RBRACKET = 48
+def KEY_PAGEUP = 75
+def KEY_PAGEDOWN = 78
+def KEY_MINUS = 45
+def KEY_EQUALS = 46
+def KEY_1 = 30
+def KEY_2 = 31
+def KEY_3 = 32
+def KEY_4 = 33
+def KEY_5 = 34
+def KEY_COMMA = 54
+def KEY_PERIOD = 55
+def KEY_Q = 20
+def KEY_W = 26
+def KEY_E = 8
+def KEY_R = 21
+def KEY_F = 9
+def KEY_H = 11
+def KEY_O = 18
+def KEY_S = 22
+def KEY_LGUI = 227
+def KEY_RGUI = 231
+def KEY_LSHIFT = 225
+def KEY_RSHIFT = 229
+
+-- Icons
+def ICN_NEW  = [0x007f, 0x4141, 0x4142, 0x457a]
+def ICN_OPEN = [0x007f, 0x556b, 0x556a, 0x557a]
+def ICN_SAVE = [0x0008, 0x2a14, 0x6314, 0x2a08]
+def ICN_PREV = [0x0008, 0x1838, 0x7838, 0x1808]
+def ICN_NEXT = [0x0010, 0x181c, 0x1e1c, 0x1810]
+def ICN_HALFTONE = [0xAA55, 0xAA55, 0xAA55, 0xAA55]
+def ICN_SOLID    = [0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF]
+
+-- Grid scrollbar (8px wide column at right of step grid, flush with CH8 cells)
+def GRID_SCROLL_X = 916
+def GRID_SCROLL_W = 8
+def GRID_SCROLL_PAD = 2
+
+-- Transport buttons
+def TRANSPORT_Y = 28
+def TRANSPORT_BTN_H = FONT_H
+def TRANSPORT_PLAY_W = 56
+def TRANSPORT_STOP_W = 48
+
+-- File buttons
+def FILE_BTN_Y = 48
+def FILE_BTN_SIZE = 20
+def FILE_BTN_PAD = 2
+def FILE_BTN_NEW_X = SCREEN_W - 92
+def FILE_BTN_OPEN_X = SCREEN_W - 64
+def FILE_BTN_SAVE_X = SCREEN_W - 36
+def TRANSPORT_STOP_X = FILE_BTN_SAVE_X + FILE_BTN_SIZE - TRANSPORT_STOP_W
+def TRANSPORT_PLAY_X = TRANSPORT_STOP_X - 8 - TRANSPORT_PLAY_W
+
+-- View mode buttons
+def VIEW_BTN_LABEL_GRID = "GRID"
+def VIEW_BTN_LABEL_SAMPLE = "SMPL"
+def VIEW_BTN_Y = 91
+def VIEW_BTN_H = FONT_H + 4
+def VIEW_BTN_W = 44
+def VIEW_BTN_GRID_X = 16
+def VIEW_BTN_SAMPLE_X = 64
+
+-- Sample navigation
+def SAMPLE_NAV_Y = 148
+def SAMPLE_NAV_SIZE = 16
+def SAMPLE_PREV_X = GRID_X
+def SAMPLE_NEXT_X = GRID_X + 24
+
+-- Sample UI layout
+def SAMPLE_TITLE_Y = 148
+def SAMPLE_FIELDS_Y = 165
+def SAMPLE_ACTIONS_Y = 186
+def SAMPLE_WAVE_Y_OFF = 60
+
+def SAMPLE_NAME_X = 252
+def SAMPLE_NAME_W = 176
+
+def SAMPLE_LOAD_X = 444
+def SAMPLE_LOAD_W = 48
+def SAMPLE_LEN_LABEL_X = 508
+
+-- Sample field positions
+def SF_VOL_X = GRID_X
+def SF_VOL_W = 112
+def SF_FT_X = 276
+def SF_FT_W = 112
+def SF_LPS_X = 404
+def SF_LPS_W = 120
+def SF_LPL_X = 540
+def SF_LPL_W = 120
+def SF_BTN_W = 24
+
+-- Sample actions
+def SACT_CUT_X = GRID_X
+def SACT_CUT_W = 40
+def SACT_LOOP_X = 196
+def SACT_LOOP_W = 80
+def SACT_CLEAR_X = 284
+def SACT_CLEAR_W = 72
+def SACT_INFO_X = 364
+
+-- Header
+def HEADER_FILE_X = 16
+def HEADER_FILE_Y = 33
+def HEADER_FILE_W = 240
+
+-- Limits
+def MAX_PATTERNS = 64
+def MAX_CELLS = MAX_PATTERNS * 64 * MOD_CHANNELS
+def MAX_SAMPLES = 32
+def MAX_ORDERS = 256
+def MOD_VOLUME_MAX = 15
+
+-- Special note values
+def NOTE_HOLD = -1
+def NOTE_REST = -2
+
+:: semitone_for_key(ch = string) (( num ))
+    if ch == "z" || ch == "Z"
+        <- 0
+    if ch == "s" || ch == "S"
+        <- 1
+    if ch == "x" || ch == "X"
+        <- 2
+    if ch == "d" || ch == "D"
+        <- 3
+    if ch == "c" || ch == "C"
+        <- 4
+    if ch == "v" || ch == "V"
+        <- 5
+    if ch == "g" || ch == "G"
+        <- 6
+    if ch == "b" || ch == "B"
+        <- 7
+    if ch == "h" || ch == "H"
+        <- 8
+    if ch == "n" || ch == "N"
+        <- 9
+    if ch == "j" || ch == "J"
+        <- 10
+    if ch == "m" || ch == "M"
+        <- 11
+    <- -1
+;
+
+-- Titlebar sprites
+def CURSOR_CHR = [
+    0x0000, 0x0000, 0x0814, 0x1417, 0x0000, 0x0000, 0x0008, 0x0808,
+    0x0000, 0x0000, 0x0000, 0x00c0, 0x0000, 0x0000, 0x0000, 0x0000,
+    0x1010, 0x2010, 0x1008, 0x0700, 0x0f0f, 0x1f0f, 0x0f07, 0x0000,
+    0x2010, 0x1010, 0x2020, 0xc000, 0xc0e0, 0xe0e0, 0xc0c0, 0x0000
+]
+def BG_CHR = [
+    0x0000, 0x00ff, 0x00ff, 0x00ff, 0xffff, 0xff00, 0xff00, 0xff00,
+    0x00ff, 0x00ff, 0x00ff, 0x0000, 0xff00, 0xff00, 0xff00, 0xffff,
+    0xff00, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000
+]
+def CLOSE_ICN = [
+    0x0000, 0x007f, 0x4040, 0x4040, 0x4040, 0x4040, 0x407f, 0x0000,
+    0x0000, 0x00f7, 0x1017, 0x1017, 0x1017, 0x1017, 0x10f7, 0x0000
+]
+def CLOSE_DOWN_ICN = [
+    0x0000, 0x007f, 0x4252, 0x4a40, 0x7840, 0x4a52, 0x427f, 0x0000,
+    0x0000, 0x00f7, 0x1057, 0x9017, 0xf017, 0x9057, 0x10f7, 0x0000
+]
+
+def CURSOR_ADDR = 0x7E0
+def CLOSE_ADDR = 0x8E0
+def CLOSE_DOWN_ADDR = 0x9E0
+def BG_ADDR = 0xAE0
+def TITLEBAR_H = 17
+def TITLEBAR_SHADE_H = 17
+def TITLEBAR_EDGE_Y = 14
+def HEADER_DBLCLICK_MS = 400
+def HEADER_DBLCLICK_DIST = 8

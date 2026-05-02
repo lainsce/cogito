@@ -3,7 +3,35 @@ cask tracker_draw
 bring stdr
 bring vimana
 
+:: fill_halftone(scr = vimana.screen, x = num, y = num, w = num, h = num, c = num) (( -- ))
+    if w <= 0 || h <= 0
+        <-
+    for (let ?row = 0; row < h; row += 1)
+        let py = y + row
+        let start = row % 2
+        scr.set_y(py)
+        for (let ?col = start; col < w; col += 2)
+            scr.set_x(x + col).pixel(c)
+;
+
 :: fill(scr = vimana.screen, x = num, y = num, w = num, h = num, c = num) (( -- ))
+    if w <= 0 || h <= 0
+        <-
+    if w == 1 && h == 1
+        scr.set_x(x).set_y(y).pixel(c)
+        <-
+    if h == 1
+        scr.set_auto(1).set_y(y).set_x(x)
+        for (let ?col = 0; col < w; col += 1)
+            scr.pixel(c)
+        scr.set_auto(0)
+        <-
+    if w == 1
+        scr.set_auto(2).set_x(x).set_y(y)
+        for (let ?row = 0; row < h; row += 1)
+            scr.pixel(c)
+        scr.set_auto(0)
+        <-
     scr.set_auto(1)
     for (let ?row = 0; row < h; row += 1)
         scr.set_y(y + row).set_x(x)
@@ -44,8 +72,24 @@ bring vimana
 ;
 
 :: line(scr = vimana.screen, x0 = num, y0 = num, x1 = num, y1 = num, c = num) (( -- ))
-    let ?dx = x1 - x0
-    let ?dy = y1 - y0
+    if y0 == y1
+        let ?xa = x0
+        let ?xb = x1
+        if xb < xa
+            xa = x1
+            xb = x0
+        fill(scr, xa, y0, xb - xa + 1, 1, c)
+        <-
+    if x0 == x1
+        let ?ya = y0
+        let ?yb = y1
+        if yb < ya
+            ya = y1
+            yb = y0
+        fill(scr, x0, ya, 1, yb - ya + 1, c)
+        <-
+    let dx = x1 - x0
+    let dy = y1 - y0
     let ?adx = dx
     if adx < 0
         adx = 0 - adx
@@ -55,13 +99,10 @@ bring vimana
     let ?steps = adx
     if ady > steps
         steps = ady
-    if steps <= 0
-        fill(scr, x0, y0, 1, 1, c)
-        <-
     for (let ?i = 0; i <= steps; i += 1)
         let px = x0 + stdr.floor((dx * i) / steps)
         let py = y0 + stdr.floor((dy * i) / steps)
-        fill(scr, px, py, 1, 1, c)
+        scr.set_x(px).set_y(py).pixel(c)
 ;
 
 : tiny_hex_bits(n = num) (( num ))
@@ -103,11 +144,9 @@ bring vimana
     for (let ?row = 0; row < 5; row += 1)
         for (let ?col = 0; col < 3; col += 1)
             let bit = 14 - (row * 3 + col)
-            let ?mask = 1
-            for (let ?i = 0; i < bit; i += 1)
-                mask = mask * 2
+            let mask = 1 << bit
             if stdr.floor(bits / mask) % 2 == 1
-                fill(scr, x + col, y + row, 1, 1, c)
+                scr.set_x(x + col).set_y(y + row).pixel(c)
 ;
 
 :: tiny_hex2(scr = vimana.screen, x = num, y = num, n = num, c = num) (( -- ))

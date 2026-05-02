@@ -1,0 +1,545 @@
+cask tracker_playback
+
+bring stdr
+bring vimana
+bring tracker_constants
+bring tracker_state
+bring tracker_mod
+bring tracker_samples
+
+:: tempo_tick_ms() (( num ))
+    let ?tempo = tracker_state.play_tempo
+    if tempo < 1
+        tempo = 1
+    <- 2500 / tempo
+;
+
+:: editor_step_ms() (( num ))
+    let ?rate = tracker_state.bpm
+    if rate < 1
+        rate = 1
+    <- stdr.floor(60000 / rate / 12)
+;
+
+:: vol_mod_to_vim(v = num) (( num ))
+    if v <= 0
+        <- 0
+    if v >= 64
+        <- tracker_constants.MOD_VOLUME_MAX
+    <- stdr.floor((v * v * tracker_constants.MOD_VOLUME_MAX + 2048) / 4096)
+;
+
+:: song_cell_idx(pat = num, row = num, ch = num) (( num ))
+    <- pat * 64 * tracker_constants.MOD_CHANNELS + row * tracker_constants.MOD_CHANNELS + ch
+;
+
+:: period_to_freq16(period = num) (( num ))
+    if period < 28
+        <- 0
+    let ?fr = stdr.floor(457769 / period)
+    if fr > 65535
+        fr = 65535
+    if fr < 0
+        fr = 0
+    <- fr
+;
+
+:: apply_channel_period(sys = vimana.system, ch = num, period = num) (( -- ))
+    let smp = tracker_state.ch_sample[ch]
+    if smp >= 1 && smp < tracker_constants.MAX_SAMPLES && tracker_state.sample_length[smp] > 0
+        sys.set_frequency(ch, period)
+    else
+        sys.set_frequency(ch, period_to_freq16(period))
+;
+
+:: period_shift(period = num, semis = num) (( num ))
+    if period <= 0
+        <- 0
+    let n = tracker_mod.nearest_note(period) + semis
+    <- tracker_mod.period_for_note(n)
+;
+
+:: vibrato_delta(pos = num, depth = num) (( num ))
+    let phase = pos % 64
+    let ?wave = phase
+    if phase >= 32
+        wave = 63 - phase
+    wave = wave - 16
+    <- stdr.floor((wave * depth) / 8)
+;
+
+:: row_time_ms(speed = num, tempo = num) (( num ))
+    if speed < 1
+        speed = 1
+    if tempo < 1
+        tempo = 1
+    <- stdr.floor((speed * 2500) / tempo)
+;
+
+:: time2(n = num) (( string ))
+    if n < 10
+        <- "0" + str(n)
+    <- str(n)
+;
+
+:: song_duration_text() (( string ))
+    let sec = stdr.floor(song_duration_ms() / 1000)
+    let min = stdr.floor(sec / 60)
+    <- time2(min) + ":" + time2(sec % 60)
+;
+
+:: song_alloc() (( -- ))
+    if tracker_state.song_arrays_ready
+        <-
+    for (let ?i = 0; i < tracker_constants.MAX_ORDERS; i += 1)
+        stdr.push(tracker_state.song_orders, 0)
+    for (let ?i = 0; i < tracker_constants.MAX_CELLS; i += 1)
+        stdr.push(tracker_state.song_period, 0)
+        stdr.push(tracker_state.song_inst, 0)
+        stdr.push(tracker_state.song_fx, 0)
+        stdr.push(tracker_state.song_param, 0)
+    for (let ?i = 0; i < tracker_constants.MAX_SAMPLES; i += 1)
+        stdr.push(tracker_state.sample_volume, 0)
+        stdr.push(tracker_state.sample_wave, vimana.wave_pulse)
+        stdr.push(tracker_state.sample_finetune, 0)
+        stdr.push(tracker_state.sample_loop, 0)
+        stdr.push(tracker_state.sample_data_off, 0)
+        stdr.push(tracker_state.sample_length, 0)
+        stdr.push(tracker_state.sample_loop_start, 0)
+        stdr.push(tracker_state.sample_loop_len, 0)
+        stdr.push(tracker_state.sample_name, "")
+        stdr.push(tracker_state.sample_bytes, []: [any])
+    for (let ?ch = 0; ch < tracker_constants.TRACKS; ch += 1)
+        stdr.push(tracker_state.ch_period, 0)
+        stdr.push(tracker_state.ch_volume, 0)
+        stdr.push(tracker_state.ch_sample, 0)
+        stdr.push(tracker_state.ch_vslide_up, 0)
+        stdr.push(tracker_state.ch_vslide_down, 0)
+        stdr.push(tracker_state.ch_pslide_up, 0)
+        stdr.push(tracker_state.ch_pslide_down, 0)
+        stdr.push(tracker_state.ch_arp_x, 0)
+        stdr.push(tracker_state.ch_arp_y, 0)
+        stdr.push(tracker_state.ch_porta_target, 0)
+        stdr.push(tracker_state.ch_porta_speed, 0)
+        stdr.push(tracker_state.ch_vibrato_pos, 0)
+        stdr.push(tracker_state.ch_vibrato_speed, 0)
+        stdr.push(tracker_state.ch_vibrato_depth, 0)
+        stdr.push(tracker_state.ch_tremolo_pos, 0)
+        stdr.push(tracker_state.ch_tremolo_speed, 0)
+        stdr.push(tracker_state.ch_tremolo_depth, 0)
+        stdr.push(tracker_state.ch_note_cut, -1)
+        stdr.push(tracker_state.ch_retrigger, 0)
+    tracker_state.song_arrays_ready = true
+;
+
+:: song_duration_ms() (( num ))
+    if !tracker_state.song_loaded
+        <- 0
+    let ?order = 0
+    let ?row = 0
+    let ?speed = 6
+    let ?tempo = 125
+    let ?ms = 0
+    let max_rows = tracker_state.song_length * 64 + 1
+    for (let ?step = 0; step < max_rows; step += 1)
+        if order >= 0 && order < tracker_state.song_length
+            let pat = tracker_state.song_orders[order]
+            let ?jump_order = -1
+            let ?break_row = -1
+            for (let ?ch = 0; ch < tracker_constants.MOD_CHANNELS; ch += 1)
+                let k = song_cell_idx(pat, row, ch)
+                let fx = tracker_state.song_fx[k]
+                let param = tracker_state.song_param[k]
+                if fx == 0xF
+                    if param > 0 && param <= 31
+                        speed = param
+                    elif param > 31
+                        tempo = param
+                elif fx == 0xB
+                    jump_order = param
+                elif fx == 0xD
+                    let br = stdr.floor(param / 16) * 10 + (param % 16)
+                    if br > 63
+                        br = 0
+                    break_row = br
+            ms += row_time_ms(speed, tempo)
+            if jump_order >= 0
+                order = jump_order
+                row = 0
+            elif break_row >= 0
+                order += 1
+                row = break_row
+            else
+                row += 1
+                if row >= 64
+                    row = 0
+                    order += 1
+    <- ms
+;
+
+:: song_process_row(sys = vimana.system) (( -- ))
+    let pat = tracker_state.song_orders[tracker_state.play_order]
+    for (let ?ch = 0; ch < tracker_constants.MOD_CHANNELS; ch += 1)
+        let k = song_cell_idx(pat, tracker_state.play_row, ch)
+        let period = tracker_state.song_period[k]
+        let inst = tracker_state.song_inst[k]
+        let fx = tracker_state.song_fx[k]
+        let param = tracker_state.song_param[k]
+
+        tracker_state.ch_vslide_up[ch] = 0
+        tracker_state.ch_vslide_down[ch] = 0
+        tracker_state.ch_pslide_up[ch] = 0
+        tracker_state.ch_pslide_down[ch] = 0
+        tracker_state.ch_arp_x[ch] = 0
+        tracker_state.ch_arp_y[ch] = 0
+        tracker_state.ch_note_cut[ch] = -1
+        tracker_state.ch_retrigger[ch] = 0
+
+        let ?retrigger = false
+
+        if inst > 0 && inst < tracker_constants.MAX_SAMPLES
+            tracker_state.ch_sample[ch] = inst
+            tracker_state.ch_volume[ch] = tracker_state.sample_volume[inst]
+
+        if period > 0 && fx != 3 && fx != 5
+            tracker_state.ch_period[ch] = period
+            retrigger = true
+        elif period > 0
+            tracker_state.ch_porta_target[ch] = period
+
+        if fx == 0 && param > 0
+            tracker_state.ch_arp_x[ch] = stdr.floor(param / 16)
+            tracker_state.ch_arp_y[ch] = param % 16
+        elif fx == 3
+            if param > 0
+                tracker_state.ch_porta_speed[ch] = param
+        elif fx == 4
+            let vs = stdr.floor(param / 16)
+            let vd = param % 16
+            if vs > 0
+                tracker_state.ch_vibrato_speed[ch] = vs
+            if vd > 0
+                tracker_state.ch_vibrato_depth[ch] = vd
+        elif fx == 5
+            if param >= 16
+                tracker_state.ch_vslide_up[ch] = stdr.floor(param / 16)
+            else
+                tracker_state.ch_vslide_down[ch] = param % 16
+        elif fx == 6
+            if param >= 16
+                tracker_state.ch_vslide_up[ch] = stdr.floor(param / 16)
+            else
+                tracker_state.ch_vslide_down[ch] = param % 16
+        elif fx == 7
+            let ts = stdr.floor(param / 16)
+            let td = param % 16
+            if ts > 0
+                tracker_state.ch_tremolo_speed[ch] = ts
+            if td > 0
+                tracker_state.ch_tremolo_depth[ch] = td
+        elif fx == 0xA
+            if param >= 16
+                tracker_state.ch_vslide_up[ch] = stdr.floor(param / 16)
+            else
+                tracker_state.ch_vslide_down[ch] = param % 16
+        elif fx == 1
+            tracker_state.ch_pslide_up[ch] = param
+        elif fx == 2
+            tracker_state.ch_pslide_down[ch] = param
+        elif fx == 0xC
+            let ?nv = param
+            if nv > 64
+                nv = 64
+            if nv < 0
+                nv = 0
+            tracker_state.ch_volume[ch] = nv
+        elif fx == 0xB
+            tracker_state.play_jump_order = param
+        elif fx == 0xD
+            let ?br = stdr.floor(param / 16) * 10 + (param % 16)
+            if br > 63
+                br = 0
+            tracker_state.play_break_row = br
+        elif fx == 0xE
+            let sub = stdr.floor(param / 16)
+            let val = param % 16
+            if sub == 1
+                tracker_state.ch_period[ch] = tracker_state.ch_period[ch] - val
+                if tracker_state.ch_period[ch] < 56
+                    tracker_state.ch_period[ch] = 56
+            elif sub == 2
+                tracker_state.ch_period[ch] = tracker_state.ch_period[ch] + val
+                if tracker_state.ch_period[ch] > 1712
+                    tracker_state.ch_period[ch] = 1712
+            elif sub == 0xA
+                tracker_state.ch_volume[ch] = tracker_state.ch_volume[ch] + val
+                if tracker_state.ch_volume[ch] > 64
+                    tracker_state.ch_volume[ch] = 64
+            elif sub == 0xB
+                tracker_state.ch_volume[ch] = tracker_state.ch_volume[ch] - val
+                if tracker_state.ch_volume[ch] < 0
+                    tracker_state.ch_volume[ch] = 0
+            elif sub == 0xC
+                tracker_state.ch_note_cut[ch] = val
+            elif sub == 9
+                tracker_state.ch_retrigger[ch] = val
+        elif fx == 0xF
+            if param > 0 && param <= 31
+                tracker_state.play_speed = param
+            elif param > 31
+                tracker_state.play_tempo = param
+                tracker_state.bpm = param
+
+        if retrigger
+            let smp = tracker_state.ch_sample[ch]
+            if smp >= 1 && smp < tracker_constants.MAX_SAMPLES && tracker_state.sample_length[smp] > 0
+                sys.play_sample(ch, smp, tracker_state.ch_period[ch], tracker_state.ch_volume[ch])
+            else
+                let ?wave = vimana.wave_pulse
+                if smp >= 1 && smp < tracker_constants.MAX_SAMPLES
+                    wave = tracker_state.sample_wave[smp]
+                sys.set_voice(ch, wave)
+                sys.play_voice(ch, 60, vol_mod_to_vim(tracker_state.ch_volume[ch]))
+                sys.set_frequency(ch, period_to_freq16(tracker_state.ch_period[ch]))
+        else
+            let smp = tracker_state.ch_sample[ch]
+            if smp >= 1 && smp < tracker_constants.MAX_SAMPLES && tracker_state.sample_length[smp] > 0
+                sys.set_voice_volume(ch, tracker_state.ch_volume[ch])
+            else
+                sys.set_voice_volume(ch, vol_mod_to_vim(tracker_state.ch_volume[ch]))
+        apply_channel_period(sys, ch, tracker_state.ch_period[ch])
+;
+
+:: song_apply_continuous(sys = vimana.system) (( -- ))
+    for (let ?ch = 0; ch < tracker_constants.MOD_CHANNELS; ch += 1)
+        let ?changed_vol = false
+        let ?changed_period = false
+        if tracker_state.ch_vslide_up[ch] > 0
+            let ?nv = tracker_state.ch_volume[ch] + tracker_state.ch_vslide_up[ch]
+            if nv > 64
+                nv = 64
+            tracker_state.ch_volume[ch] = nv
+            changed_vol = true
+        elif tracker_state.ch_vslide_down[ch] > 0
+            let ?nv = tracker_state.ch_volume[ch] - tracker_state.ch_vslide_down[ch]
+            if nv < 0
+                nv = 0
+            tracker_state.ch_volume[ch] = nv
+            changed_vol = true
+        if tracker_state.ch_pslide_up[ch] > 0
+            let ?np = tracker_state.ch_period[ch] - tracker_state.ch_pslide_up[ch]
+            if np < 56
+                np = 56
+            tracker_state.ch_period[ch] = np
+            changed_period = true
+        elif tracker_state.ch_pslide_down[ch] > 0
+            let ?np = tracker_state.ch_period[ch] + tracker_state.ch_pslide_down[ch]
+            if np > 1712
+                np = 1712
+            tracker_state.ch_period[ch] = np
+            changed_period = true
+        elif tracker_state.ch_porta_target[ch] > 0 && tracker_state.ch_porta_speed[ch] > 0
+            if tracker_state.ch_period[ch] < tracker_state.ch_porta_target[ch]
+                let ?np = tracker_state.ch_period[ch] + tracker_state.ch_porta_speed[ch]
+                if np > tracker_state.ch_porta_target[ch]
+                    np = tracker_state.ch_porta_target[ch]
+                tracker_state.ch_period[ch] = np
+                changed_period = true
+            elif tracker_state.ch_period[ch] > tracker_state.ch_porta_target[ch]
+                let ?np = tracker_state.ch_period[ch] - tracker_state.ch_porta_speed[ch]
+                if np < tracker_state.ch_porta_target[ch]
+                    np = tracker_state.ch_porta_target[ch]
+                tracker_state.ch_period[ch] = np
+                changed_period = true
+        let ?out_period = tracker_state.ch_period[ch]
+        if tracker_state.ch_arp_x[ch] > 0 || tracker_state.ch_arp_y[ch] > 0
+            let arp_pos = tracker_state.play_tick % 3
+            if arp_pos == 1
+                out_period = period_shift(tracker_state.ch_period[ch], tracker_state.ch_arp_x[ch])
+            elif arp_pos == 2
+                out_period = period_shift(tracker_state.ch_period[ch], tracker_state.ch_arp_y[ch])
+            changed_period = true
+        if tracker_state.ch_vibrato_depth[ch] > 0 && tracker_state.ch_vibrato_speed[ch] > 0
+            tracker_state.ch_vibrato_pos[ch] = tracker_state.ch_vibrato_pos[ch] + tracker_state.ch_vibrato_speed[ch]
+            out_period = tracker_state.ch_period[ch] + vibrato_delta(tracker_state.ch_vibrato_pos[ch], tracker_state.ch_vibrato_depth[ch])
+            if out_period < 56
+                out_period = 56
+            if out_period > 1712
+                out_period = 1712
+            changed_period = true
+        if changed_vol
+            let smp = tracker_state.ch_sample[ch]
+            if smp >= 1 && smp < tracker_constants.MAX_SAMPLES && tracker_state.sample_length[smp] > 0
+                sys.set_voice_volume(ch, tracker_state.ch_volume[ch])
+            else
+                sys.set_voice_volume(ch, vol_mod_to_vim(tracker_state.ch_volume[ch]))
+        if tracker_state.ch_tremolo_depth[ch] > 0 && tracker_state.ch_tremolo_speed[ch] > 0
+            tracker_state.ch_tremolo_pos[ch] = tracker_state.ch_tremolo_pos[ch] + tracker_state.ch_tremolo_speed[ch]
+            let ?tv = tracker_state.ch_volume[ch] + vibrato_delta(tracker_state.ch_tremolo_pos[ch], tracker_state.ch_tremolo_depth[ch])
+            if tv < 0
+                tv = 0
+            if tv > 64
+                tv = 64
+            let smp = tracker_state.ch_sample[ch]
+            if smp >= 1 && smp < tracker_constants.MAX_SAMPLES && tracker_state.sample_length[smp] > 0
+                sys.set_voice_volume(ch, tv)
+            else
+                sys.set_voice_volume(ch, vol_mod_to_vim(tv))
+        if tracker_state.ch_note_cut[ch] >= 0 && tracker_state.play_tick >= tracker_state.ch_note_cut[ch]
+            sys.stop_voice(ch)
+        elif tracker_state.ch_retrigger[ch] > 0
+            if tracker_state.play_tick > 0
+                if tracker_state.play_tick % tracker_state.ch_retrigger[ch] == 0
+                    let smp = tracker_state.ch_sample[ch]
+                    if smp >= 1 && smp < tracker_constants.MAX_SAMPLES && tracker_state.sample_length[smp] > 0
+                        sys.play_sample(ch, smp, tracker_state.ch_period[ch], tracker_state.ch_volume[ch])
+        if changed_period
+            apply_channel_period(sys, ch, out_period)
+;
+
+:: song_advance_row() (( -- ))
+    let ?next_row = tracker_state.play_row + 1
+    let ?next_order = tracker_state.play_order
+    let ?row_set = false
+    if tracker_state.play_break_row >= 0
+        next_row = tracker_state.play_break_row
+        tracker_state.play_break_row = -1
+        row_set = true
+    if tracker_state.play_jump_order >= 0
+        next_order = tracker_state.play_jump_order
+        tracker_state.play_jump_order = -1
+        if !row_set
+            next_row = 0
+    elif row_set
+        next_order = tracker_state.play_order + 1
+    elif next_row >= 64
+        next_row = 0
+        next_order = tracker_state.play_order + 1
+    if next_order >= tracker_state.song_length
+        next_order = tracker_state.song_restart
+        if next_order >= tracker_state.song_length
+            next_order = 0
+    tracker_state.play_order = next_order
+    tracker_state.play_row = next_row
+;
+
+:: reset_song_playhead() (( -- ))
+    tracker_state.play_order = 0
+    tracker_state.play_row = 0
+    tracker_state.play_tick = 0
+    tracker_state.play_speed = 6
+    tracker_state.play_tempo = 125
+    tracker_state.bpm = tracker_state.play_tempo
+    tracker_state.play_break_row = -1
+    tracker_state.play_jump_order = -1
+    for (let ?ch = 0; ch < tracker_constants.TRACKS; ch += 1)
+        tracker_state.ch_period[ch] = 0
+        tracker_state.ch_volume[ch] = 0
+        tracker_state.ch_sample[ch] = 0
+        tracker_state.ch_vslide_up[ch] = 0
+        tracker_state.ch_vslide_down[ch] = 0
+        tracker_state.ch_pslide_up[ch] = 0
+        tracker_state.ch_pslide_down[ch] = 0
+        tracker_state.ch_arp_x[ch] = 0
+        tracker_state.ch_arp_y[ch] = 0
+        tracker_state.ch_porta_target[ch] = 0
+        tracker_state.ch_porta_speed[ch] = 0
+        tracker_state.ch_vibrato_pos[ch] = 0
+        tracker_state.ch_vibrato_speed[ch] = 0
+        tracker_state.ch_vibrato_depth[ch] = 0
+        tracker_state.ch_tremolo_pos[ch] = 0
+        tracker_state.ch_tremolo_speed[ch] = 0
+        tracker_state.ch_tremolo_depth[ch] = 0
+        tracker_state.ch_note_cut[ch] = -1
+        tracker_state.ch_retrigger[ch] = 0
+;
+
+:: song_setup(sys = vimana.system) (( -- ))
+    sys.begin_audio()
+    sys.set_master_volume(tracker_state.master)
+    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
+        sys.stop_voice(ch)
+        sys.set_envelope(ch, 0, 0, 15, 1)
+        sys.set_filter_route(ch, 0)
+    sys.set_pulse_width(2, 96)
+    sys.set_filter(tracker_state.cutoff, tracker_state.resonance, tracker_state.filter_mode)
+    sys.end_audio()
+;
+
+:: stop_all(sys = vimana.system) (( -- ))
+    sys.begin_audio()
+    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
+        sys.stop_voice(ch)
+    sys.end_audio()
+;
+
+:: setup_audio(sys = vimana.system) (( -- ))
+    sys.begin_audio()
+    sys.set_master_volume(tracker_state.master)
+    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
+        sys.stop_voice(ch)
+        sys.set_envelope(ch, 0, 4, 8, 3)
+        sys.set_filter_route(ch, 0)
+    for (let ?t = 0; t < tracker_constants.TRACKS; t += 1)
+        sys.set_voice(t, tracker_state.waves[t])
+        sys.set_filter_route(t, 1)
+    sys.set_pulse_width(2, 96)
+    sys.set_filter(tracker_state.cutoff, tracker_state.resonance, tracker_state.filter_mode)
+    sys.end_audio()
+;
+
+:: start_playback(sys = vimana.system) (( -- ))
+    tracker_state.playing = true
+    if tracker_state.song_loaded
+        song_setup(sys)
+        tracker_state.play_step = (tracker_state.play_order * 64 + tracker_state.play_row) % tracker_constants.STEPS
+        tracker_state.last_tick = sys.ticks() - tempo_tick_ms()
+    else
+        if !tracker_state.play_paused
+            tracker_state.play_step = tracker_state.cursor_step
+        tracker_state.last_tick = sys.ticks()
+        trigger_step(sys, tracker_state.play_step)
+    tracker_state.play_paused = false
+    tracker_state.dirty = true
+;
+
+:: pause_playback(sys = vimana.system) (( -- ))
+    tracker_state.playing = false
+    tracker_state.play_paused = true
+    if tracker_state.song_loaded
+        tracker_state.play_tick = 0
+    stop_all(sys)
+    tracker_state.dirty = true
+;
+
+:: stop_playback(sys = vimana.system) (( -- ))
+    pause_playback(sys)
+    tracker_state.play_paused = false
+    if tracker_state.song_loaded
+        reset_song_playhead()
+    else
+        tracker_state.play_step = 0
+    tracker_state.dirty = true
+;
+
+:: toggle_playback(sys = vimana.system) (( -- ))
+    if tracker_state.playing
+        pause_playback(sys)
+    else
+        start_playback(sys)
+;
+
+:: trigger_step(sys = vimana.system, step = num) (( -- ))
+    sys.begin_audio()
+    for (let ?t = 0; t < tracker_constants.TRACKS; t += 1)
+        let k = step * tracker_constants.TRACKS + t
+        let n = tracker_state.notes[k]
+        if n >= 0 && tracker_state.vols[k] > 0
+            sys.set_voice(t, tracker_state.waves[t])
+            sys.play_voice(t, n, tracker_state.vols[k])
+        elif n == tracker_constants.NOTE_REST
+            sys.stop_voice(t)
+    sys.set_master_volume(tracker_state.master)
+    sys.set_filter(tracker_state.cutoff, tracker_state.resonance, tracker_state.filter_mode)
+    sys.end_audio()
+;

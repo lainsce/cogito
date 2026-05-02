@@ -1,0 +1,480 @@
+cask tracker_io
+
+bring stdr
+bring vimana
+bring tracker_constants
+bring tracker_mod
+bring tracker_state
+bring tracker_editor
+bring tracker_playback
+bring tracker_samples
+
+:: push_byte(out = any, b = num) (( -- ))
+    if b < 0
+        b = 256 + (b % 256)
+    stdr.push(out, b % 256)
+;
+
+:: push_be16(out = any, v = num) (( -- ))
+    push_byte(out, stdr.floor(v / 256))
+    push_byte(out, v % 256)
+;
+
+:: push_text_fixed(out = any, text = string, size = num) (( -- ))
+    for (let ?i = 0; i < size; i += 1)
+        if i < stdr.len(text)
+            push_byte(out, stdr.char_code(stdr.char_at(text, i)))
+        else
+            push_byte(out, 0)
+;
+
+:: mod_pattern_count() (( num ))
+    <- stdr.floor((tracker_editor.total_steps() + 63) / 64)
+;
+
+:: sample_value(code = num, i = num) (( num ))
+    if code == 1
+        if i < 16
+            <- -64 + i * 8
+        <- 64 - (i - 16) * 8
+    elif code == 2
+        <- -64 + i * 4
+    elif code == 3
+        if i < 16
+            <- 64
+        <- -64
+    elif code == 4
+        let y = (i * 73 + 41)
+        <- (y % 129) - 64
+    elif i % 4 < 2
+        <- 48
+    <- -48
+;
+
+:: push_sample_header(out = any, code = num) (( -- ))
+    let ?name = "vimana"
+    if code == 1
+        name = "vimana triangle"
+    elif code == 2
+        name = "vimana saw"
+    elif code == 3
+        name = "vimana pulse"
+    elif code == 4
+        name = "vimana noise"
+    elif code == 5
+        name = "vimana psg"
+    push_text_fixed(out, name, 22)
+    if code > 0 && code <= 5
+        push_be16(out, 16)
+        push_byte(out, 0)
+        push_byte(out, 64)
+        push_be16(out, 0)
+        push_be16(out, 1)
+    else
+        push_be16(out, 0)
+        push_byte(out, 0)
+        push_byte(out, 0)
+        push_be16(out, 0)
+        push_be16(out, 1)
+;
+
+:: push_sample_data(out = any, code = num) (( -- ))
+    for (let ?i = 0; i < 32; i += 1)
+        push_byte(out, sample_value(code, i))
+;
+
+:: push_mod_cell(out = any, step = num, ch = num) (( -- ))
+    if step >= tracker_editor.total_steps()
+        push_byte(out, 0)
+        push_byte(out, 0)
+        push_byte(out, 0)
+        push_byte(out, 0)
+        <-
+    let k = tracker_editor.idx(step, ch)
+    let n = tracker_state.notes[k]
+    let ?period = 0
+    let ?inst = 0
+    let ?effect = 0
+    let ?param = 0
+    if n == tracker_constants.NOTE_REST
+        effect = 12
+    elif n >= 0
+        period = tracker_mod.period_for_note(n)
+        inst = tracker_mod.wave_code(tracker_state.waves[ch])
+        effect = 12
+        param = tracker_state.vols[k] * 4
+        if param > 64
+            param = 64
+    if step == 0 && ch == 0
+        effect = 15
+        param = tracker_state.bpm
+        if param < 32
+            param = 32
+        if param > 255
+            param = 255
+    push_byte(out, stdr.floor(inst / 16) * 16 + stdr.floor(period / 256))
+    push_byte(out, period % 256)
+    push_byte(out, (inst % 16) * 16 + effect)
+    push_byte(out, param)
+;
+
+:: mod_bytes() (( [any] ))
+    let ?out = []: [any]
+    let patterns = mod_pattern_count()
+    push_text_fixed(out, tracker_editor.tracker_mod_title(), 20)
+    for (let ?smp = 1; smp <= 31; smp += 1)
+        push_sample_header(out, smp)
+    push_byte(out, patterns)
+    push_byte(out, 0)
+    for (let ?i = 0; i < 128; i += 1)
+        if i < patterns
+            push_byte(out, i)
+        else
+            push_byte(out, 0)
+    push_text_fixed(out, "M.K.", 4)
+    for (let ?pat = 0; pat < patterns; pat += 1)
+        for (let ?row = 0; row < 64; row += 1)
+            for (let ?ch = 0; ch < tracker_constants.MOD_CHANNELS; ch += 1)
+                push_mod_cell(out, pat * 64 + row, ch)
+    for (let ?code = 1; code <= 5; code += 1)
+        push_sample_data(out, code)
+    <- out
+;
+
+:: upload_mod_samples(sys = vimana.system, bytes = any) (( -- ))
+    for (let ?smp = 1; smp < tracker_constants.MAX_SAMPLES; smp += 1)
+        let len = tracker_state.sample_length[smp]
+        let off = tracker_state.sample_data_off[smp]
+        if len > 0 && off + len <= stdr.len(bytes)
+            let loop_start = tracker_state.sample_loop_start[smp]
+            let loop_len = tracker_state.sample_loop_len[smp]
+            if loop_len <= 2 || loop_start + loop_len > len
+                loop_start = 0
+                loop_len = 0
+            let slice = tracker_mod.byte_slice(bytes, off, len)
+            tracker_state.sample_bytes[smp] = slice
+            sys.set_sample(smp, slice, loop_start, loop_len)
+        else
+            tracker_state.sample_bytes[smp] = []: [any]
+    tracker_samples.invalidate_sample_peaks()
+;
+
+:: is_mod(bytes = any) (( bool ))
+    if stdr.len(bytes) < 1084
+        <- false
+    let a = tracker_mod.byte_at(bytes, 1080)
+    let b = tracker_mod.byte_at(bytes, 1081)
+    let c = tracker_mod.byte_at(bytes, 1082)
+    let d = tracker_mod.byte_at(bytes, 1083)
+    if a == 77 && b == 46 && c == 75 && d == 46
+        <- true
+    if a == 77 && b == 33 && c == 75 && d == 33
+        <- true
+    if a == 52 && b == 67 && c == 72 && d == 78
+        <- true
+    <- false
+;
+
+:: save_file(fsys = vimana.file) (( -- ))
+    if stdr.len(tracker_state.file_path) == 0
+        tracker_editor.apply_tracker_filename()
+    fsys.write_bytes(tracker_state.file_path, mod_bytes())
+    tracker_state.dirty = true
+;
+
+:: save_file_as(fsys = vimana.file) (( -- ))
+    let picked = stdr.save_file_dialog("Save Track", "tracker.mod", "mod")
+    if is_null(picked)
+        <-
+    let path = str(picked)
+    if stdr.len(path) == 0
+        <-
+    tracker_editor.set_tracker_path(path)
+    fsys.write_bytes(path, mod_bytes())
+    tracker_state.dirty = true
+;
+
+:: open_file(fsys = vimana.file, sys = vimana.system) (( -- ))
+    let picked = stdr.open_file_dialog("Open Track", "mod")
+    if is_null(picked)
+        <-
+    let path = str(picked)
+    if stdr.len(path) == 0
+        <-
+    load_mod_path(fsys, sys, path)
+;
+
+:: load_mod_path(fsys = vimana.file, sys = vimana.system, path = string) (( bool ))
+    if stdr.len(path) == 0 || !fsys.exists(path)
+        <- false
+    let bytes = fsys.read_bytes(path)
+    if !load_mod_bytes(bytes)
+        <- false
+    upload_mod_samples(sys, bytes)
+    tracker_editor.set_tracker_path(path)
+    tracker_state.playing = false
+    tracker_state.play_paused = false
+    tracker_playback.setup_audio(sys)
+    tracker_playback.stop_all(sys)
+    tracker_state.dirty = true
+    <- true
+;
+
+:: read_mod_text(bytes = any, off = num, size = num) (( string ))
+    let ?out = ""
+    let ?last = 0
+    let ?active = true
+    for (let ?i = 0; i < size; i += 1)
+        let b = tracker_mod.byte_at(bytes, off + i)
+        if active && b >= 32 && b < 127
+            out = out + stdr.char_from_code(b)
+            if b != 32
+                last = stdr.len(out)
+        elif b == 0
+            active = false
+    if last < stdr.len(out)
+        out = stdr.slice(out, 0, last)
+    <- out
+;
+
+:: load_mod_bytes(bytes = any) (( bool ))
+    if !is_mod(bytes)
+        <- false
+    tracker_playback.song_alloc()
+    tracker_state.song_length = tracker_mod.byte_at(bytes, 950)
+    if tracker_state.song_length <= 0 || tracker_state.song_length > 128
+        tracker_state.song_length = 1
+    tracker_state.song_restart = tracker_mod.byte_at(bytes, 951)
+    if tracker_state.song_restart >= tracker_state.song_length
+        tracker_state.song_restart = 0
+    tracker_state.song_pattern_count = 1
+    for (let ?i = 0; i < tracker_constants.MAX_ORDERS; i += 1)
+        tracker_state.song_orders[i] = 0
+    for (let ?i = 0; i < tracker_state.song_length; i += 1)
+        let p = tracker_mod.byte_at(bytes, 952 + i)
+        tracker_state.song_orders[i] = p
+        if p + 1 > tracker_state.song_pattern_count
+            tracker_state.song_pattern_count = p + 1
+    if tracker_state.song_pattern_count > tracker_constants.MAX_PATTERNS
+        tracker_state.song_pattern_count = tracker_constants.MAX_PATTERNS
+    if 1084 + tracker_state.song_pattern_count * 1024 > stdr.len(bytes)
+        <- false
+    for (let ?pat = 0; pat < tracker_state.song_pattern_count; pat += 1)
+        for (let ?row = 0; row < 64; row += 1)
+            for (let ?ch = 0; ch < tracker_constants.MOD_CHANNELS; ch += 1)
+                let off = 1084 + pat * 1024 + row * 16 + ch * 4
+                let b0 = tracker_mod.byte_at(bytes, off)
+                let b1 = tracker_mod.byte_at(bytes, off + 1)
+                let b2 = tracker_mod.byte_at(bytes, off + 2)
+                let b3 = tracker_mod.byte_at(bytes, off + 3)
+                let k = tracker_playback.song_cell_idx(pat, row, ch)
+                tracker_state.song_period[k] = (b0 % 16) * 256 + b1
+                tracker_state.song_inst[k] = stdr.floor(b0 / 16) * 16 + stdr.floor(b2 / 16)
+                tracker_state.song_fx[k] = b2 % 16
+                tracker_state.song_param[k] = b3
+    let ?cur_off = 1084 + tracker_state.song_pattern_count * 1024
+    for (let ?i = 0; i < tracker_constants.MAX_SAMPLES; i += 1)
+        tracker_state.sample_volume[i] = 0
+        tracker_state.sample_wave[i] = vimana.wave_pulse
+        tracker_state.sample_finetune[i] = 0
+        tracker_state.sample_loop[i] = 0
+        tracker_state.sample_data_off[i] = 0
+        tracker_state.sample_length[i] = 0
+        tracker_state.sample_loop_start[i] = 0
+        tracker_state.sample_loop_len[i] = 0
+        tracker_state.sample_name[i] = ""
+        tracker_state.sample_bytes[i] = []: [any]
+    for (let ?si = 0; si < 31; si += 1)
+        let so = 20 + si * 30
+        let len_words = tracker_mod.byte_at(bytes, so + 22) * 256 + tracker_mod.byte_at(bytes, so + 23)
+        let length = len_words * 2
+        let ft_raw = tracker_mod.byte_at(bytes, so + 24) % 16
+        let ?ft = ft_raw
+        if ft >= 8
+            ft = ft - 16
+        let vol = tracker_mod.byte_at(bytes, so + 25)
+        let rep_start_words = tracker_mod.byte_at(bytes, so + 26) * 256 + tracker_mod.byte_at(bytes, so + 27)
+        let rep_len_words = tracker_mod.byte_at(bytes, so + 28) * 256 + tracker_mod.byte_at(bytes, so + 29)
+        if rep_len_words < 1
+            rep_len_words = 1
+        tracker_state.sample_volume[si + 1] = vol
+        tracker_state.sample_finetune[si + 1] = ft
+        tracker_state.sample_data_off[si + 1] = cur_off
+        tracker_state.sample_length[si + 1] = length
+        tracker_state.sample_loop_start[si + 1] = rep_start_words * 2
+        tracker_state.sample_loop_len[si + 1] = rep_len_words * 2
+        tracker_state.sample_name[si + 1] = read_mod_text(bytes, so, 22)
+        if rep_len_words > 1 && rep_start_words > 0
+            tracker_state.sample_loop[si + 1] = 1
+        if length >= 16 && cur_off + length <= stdr.len(bytes)
+            tracker_state.sample_wave[si + 1] = classify_sample_bytes(bytes, cur_off, length)
+        cur_off = cur_off + length
+    tracker_playback.reset_song_playhead()
+    tracker_state.song_loaded = true
+    tracker_state.song_duration_label = tracker_playback.song_duration_text()
+    <- true
+;
+
+:: parse_wav_bytes(bytes = any) (( [any] ))
+    let n = stdr.len(bytes)
+    let ?out = []: [any]
+    if n < 44
+        <- out
+    let ?fmt_off = -1
+    let ?fmt_size = 0
+    let ?data_off = -1
+    let ?data_size = 0
+    let ?off = 12
+    for (let ?step = 0; step < 64; step += 1)
+        if off + 8 > n
+            step = 64
+        else
+            let c0 = tracker_mod.byte_at(bytes, off)
+            let c1 = tracker_mod.byte_at(bytes, off + 1)
+            let c2 = tracker_mod.byte_at(bytes, off + 2)
+            let c3 = tracker_mod.byte_at(bytes, off + 3)
+            let csize = tracker_mod.byte_at(bytes, off + 4) + tracker_mod.byte_at(bytes, off + 5) * 256 + tracker_mod.byte_at(bytes, off + 6) * 65536 + tracker_mod.byte_at(bytes, off + 7) * 16777216
+            if c0 == 102 && c1 == 109 && c2 == 116 && c3 == 32
+                fmt_off = off + 8
+                fmt_size = csize
+            elif c0 == 100 && c1 == 97 && c2 == 116 && c3 == 97
+                data_off = off + 8
+                data_size = csize
+                step = 64
+            off = off + 8 + csize
+            if csize % 2 == 1
+                off = off + 1
+            if off >= n
+                step = 64
+    if fmt_off < 0 || data_off < 0
+        <- out
+    if fmt_size < 16
+        <- out
+    let format = tracker_mod.byte_at(bytes, fmt_off) + tracker_mod.byte_at(bytes, fmt_off + 1) * 256
+    let channels = tracker_mod.byte_at(bytes, fmt_off + 2) + tracker_mod.byte_at(bytes, fmt_off + 3) * 256
+    let bits = tracker_mod.byte_at(bytes, fmt_off + 14) + tracker_mod.byte_at(bytes, fmt_off + 15) * 256
+    if format != 1
+        <- out
+    if channels < 1 || bits < 8
+        <- out
+    let bytes_per_sample = stdr.floor(bits / 8)
+    let block = bytes_per_sample * channels
+    if block <= 0
+        <- out
+    let ?frames = stdr.floor(data_size / block)
+    if data_off + frames * block > n
+        frames = stdr.floor((n - data_off) / block)
+    if frames < 0
+        frames = 0
+    if frames > 65534
+        frames = 65534
+    for (let ?i = 0; i < frames; i += 1)
+        let frame_off = data_off + i * block
+        let ?s = 0
+        if bits == 8
+            s = tracker_mod.byte_at(bytes, frame_off) - 128
+        elif bits == 16
+            let lo = tracker_mod.byte_at(bytes, frame_off)
+            let hi = tracker_mod.byte_at(bytes, frame_off + 1)
+            let ?v = lo + hi * 256
+            if v >= 32768
+                v = v - 65536
+            s = stdr.floor(v / 256)
+        elif bits == 24
+            let hi = tracker_mod.byte_at(bytes, frame_off + 2)
+            let ?v = hi
+            if v >= 128
+                v = v - 256
+            s = v
+        else
+            s = 0
+        if s < -128
+            s = -128
+        if s > 127
+            s = 127
+        if s < 0
+            s = s + 256
+        stdr.push(out, s)
+    <- out
+;
+
+:: parse_sample_bytes(bytes = any) (( [any] ))
+    let n = stdr.len(bytes)
+    if n < 4
+        <- []: [any]
+    let b0 = tracker_mod.byte_at(bytes, 0)
+    let b1 = tracker_mod.byte_at(bytes, 1)
+    let b2 = tracker_mod.byte_at(bytes, 2)
+    let b3 = tracker_mod.byte_at(bytes, 3)
+    if b0 == 82 && b1 == 73 && b2 == 70 && b3 == 70
+        <- parse_wav_bytes(bytes)
+    let ?cap = n
+    if cap > 65534
+        cap = 65534
+    if cap % 2 == 1
+        cap -= 1
+    <- tracker_mod.byte_slice(bytes, 0, cap)
+;
+
+:: load_sample_file(fsys = vimana.file, sys = vimana.system) (( -- ))
+    let picked = stdr.open_file_dialog("Load Sample", "*")
+    if is_null(picked)
+        <-
+    let path = str(picked)
+    if stdr.len(path) == 0
+        <-
+    if !fsys.exists(path)
+        <-
+    let bytes = fsys.read_bytes(path)
+    let slice = parse_sample_bytes(bytes)
+    let len = stdr.len(slice)
+    if len <= 0
+        <-
+    let i = tracker_state.sample_view_index
+    if i <= 0 || i >= tracker_constants.MAX_SAMPLES
+        <-
+    tracker_state.sample_bytes[i] = slice
+    tracker_state.sample_length[i] = len
+    tracker_state.sample_loop[i] = 0
+    tracker_state.sample_loop_start[i] = 0
+    tracker_state.sample_loop_len[i] = 0
+    if tracker_state.sample_volume[i] == 0
+        tracker_state.sample_volume[i] = 64
+    tracker_state.sample_name[i] = tracker_samples.sample_name_from_path(path)
+    tracker_state.sample_data_off[i] = 0
+    if !tracker_state.song_loaded
+        tracker_state.song_loaded = true
+        tracker_state.song_pattern_count = 1
+        if tracker_state.song_length < 1
+            tracker_state.song_length = 1
+    tracker_samples.invalidate_sample_peaks()
+    tracker_samples.reupload_sample(sys, i)
+    tracker_samples.clear_sample_selection()
+    tracker_state.dirty = true
+;
+
+:: classify_sample_bytes(bytes = any, off = num, length = num) (( num ))
+    if length < 16
+        <- vimana.wave_pulse
+    let ?limit = length
+    if limit > 4096
+        limit = 4096
+    let ?zc = 0
+    let ?prev_pos = 1
+    for (let ?i = 0; i < limit; i += 1)
+        let b = tracker_mod.byte_at(bytes, off + i)
+        let ?signed = b
+        if signed > 127
+            signed = signed - 256
+        let ?pos = 0
+        if signed >= 0
+            pos = 1
+        if i > 0 && pos != prev_pos
+            zc += 1
+        prev_pos = pos
+    if zc * 5 > limit * 2
+        <- vimana.wave_noise
+    if length > 8000
+        <- vimana.wave_triangle
+    <- vimana.wave_pulse
+;

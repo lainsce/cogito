@@ -1,0 +1,343 @@
+cask tracker_editor
+
+bring stdr
+bring vimana
+bring tracker_constants
+bring tracker_state
+bring tracker_mod
+bring tracker_samples
+bring tracker_playback
+
+:: idx(step = num, track = num) (( num ))
+    <- step * tracker_constants.TRACKS + track
+;
+
+:: page_steps() (( num ))
+    if tracker_constants.PAGE_STEPS <= 0
+        <- 1
+    <- tracker_constants.PAGE_STEPS
+;
+
+:: total_steps() (( num ))
+    if tracker_constants.STEPS <= 0
+        <- 1
+    <- tracker_constants.STEPS
+;
+
+:: map_cols() (( num ))
+    if tracker_constants.MAP_COLS <= 0
+        <- 1
+    <- tracker_constants.MAP_COLS
+;
+
+:: scope_cols() (( num ))
+    if tracker_constants.SCOPE_COLS <= 0
+        <- 1
+    <- tracker_constants.SCOPE_COLS
+;
+
+:: cell_w() (( num ))
+    if tracker_constants.CELL_W <= 0
+        <- 1
+    <- tracker_constants.CELL_W
+;
+
+:: row_h() (( num ))
+    if tracker_constants.ROW_H <= 0
+        <- 1
+    <- tracker_constants.ROW_H
+;
+
+:: clamp_cursor() (( -- ))
+    if tracker_state.cursor_step < 0
+        tracker_state.cursor_step = 0
+    if tracker_state.cursor_step >= total_steps()
+        tracker_state.cursor_step = total_steps() - 1
+    if tracker_state.cursor_track < 0
+        tracker_state.cursor_track = 0
+    if tracker_state.cursor_track >= tracker_constants.TRACKS
+        tracker_state.cursor_track = tracker_constants.TRACKS - 1
+    tracker_state.page = stdr.floor(tracker_state.cursor_step / page_steps())
+;
+
+:: page_start() (( num ))
+    <- tracker_state.page * page_steps()
+;
+
+:: page_end() (( num ))
+    <- page_start() + page_steps()
+;
+
+:: set_page(p = num) (( -- ))
+    if p < 0
+        p = 0
+    if p >= tracker_constants.PAGE_COUNT
+        p = tracker_constants.PAGE_COUNT - 1
+    tracker_state.page = p
+    tracker_state.cursor_step = tracker_state.page * page_steps()
+    tracker_state.dirty = true
+;
+
+:: path_join(dir = string, name = string) (( string ))
+    if stdr.len(dir) == 0
+        <- name
+    if dir == "/"
+        <- "/" + name
+    <- dir + "/" + name
+;
+
+:: set_tracker_path(path = string) (( -- ))
+    tracker_state.file_path = path
+    if stdr.len(path) > 0
+        tracker_state.tracker_filename = stdr.basename(path)
+;
+
+:: apply_tracker_filename() (( -- ))
+    if stdr.len(tracker_state.tracker_filename) == 0
+        tracker_state.tracker_filename = "tracker.mod"
+    let ?dir = stdr.dirname(tracker_state.file_path)
+    tracker_state.file_path = path_join(dir, tracker_state.tracker_filename)
+;
+
+:: tracker_title() (( string ))
+    let ?name = tracker_state.tracker_filename
+    if stdr.len(name) == 0
+        name = "tracker.mod"
+    <- name
+;
+
+:: tracker_mod_title() (( string ))
+    let ?name = tracker_title()
+    if stdr.ends_with(name, ".mod") || stdr.ends_with(name, ".MOD")
+        name = stdr.slice(name, 0, stdr.len(name) - 4)
+    <- name
+;
+
+:: header_file_label() (( string ))
+    let ?name = tracker_title()
+    if stdr.len(name) > 24
+        name = stdr.slice(name, 0, 24)
+    if tracker_state.editing_filename
+        <- name + "_"
+    <- name
+;
+
+:: current_sample_index() (( num ))
+    if !tracker_state.song_loaded
+        <- 0
+    let ?track = tracker_state.cursor_track
+    if tracker_state.playing
+        track = tracker_state.cursor_track
+    if track < 0 || track >= tracker_constants.MOD_CHANNELS
+        <- 0
+    let ?smp = 0
+    if tracker_state.playing
+        smp = tracker_state.ch_sample[track]
+    else
+        let op = stdr.floor(tracker_state.cursor_step / 64)
+        let row = tracker_state.cursor_step % 64
+        if op >= 0 && op < tracker_state.song_length
+            let pat = tracker_state.song_orders[op]
+            let k = tracker_playback.song_cell_idx(pat, row, track)
+            smp = tracker_state.song_inst[k]
+    if smp <= 0 || smp >= tracker_constants.MAX_SAMPLES
+        smp = tracker_state.ch_sample[track]
+    if smp < 0 || smp >= tracker_constants.MAX_SAMPLES
+        <- 0
+    <- smp
+;
+
+:: current_sample_name() (( string ))
+    let smp = current_sample_index()
+    if smp <= 0 || smp >= tracker_constants.MAX_SAMPLES
+        <- "--"
+    let ?name = tracker_state.sample_name[smp]
+    if stdr.len(name) == 0
+        name = "SAMPLE " + tracker_mod.hex2(smp)
+    if stdr.len(name) > 18
+        name = stdr.slice(name, 0, 18)
+    <- name
+;
+
+:: finish_filename_edit() (( -- ))
+    tracker_state.editing_filename = false
+    apply_tracker_filename()
+    tracker_state.dirty = true
+;
+
+:: edit_filename_text(txt = string) (( -- ))
+    for (let ?i = 0; i < stdr.len(txt); i += 1)
+        if stdr.len(tracker_state.tracker_filename) < 32
+            tracker_state.tracker_filename = tracker_state.tracker_filename + stdr.char_at(txt, i)
+    tracker_state.dirty = true
+;
+
+:: backspace_filename() (( -- ))
+    let n = stdr.len(tracker_state.tracker_filename)
+    if n > 0
+        tracker_state.tracker_filename = stdr.slice(tracker_state.tracker_filename, 0, n - 1)
+    tracker_state.dirty = true
+;
+
+:: song_step_text(step = num, ch = num) (( string ))
+    if !tracker_state.song_loaded || ch >= tracker_constants.MOD_CHANNELS
+        let k = idx(step, ch)
+        let ?name = tracker_mod.note_name(tracker_state.notes[k])
+        let ?inst = tracker_mod.wave_code(tracker_state.waves[ch])
+        let ?vol = tracker_state.vols[k]
+        if vol < 0
+            vol = 0
+        if vol > 15
+            vol = 15
+        <- name + tracker_mod.hex2(inst) + "C" + tracker_mod.hex2(vol)
+    let op = stdr.floor(step / 64)
+    if op < 0 || op >= tracker_state.song_length
+        <- "--------"
+    let row = step % 64
+    let pat = tracker_state.song_orders[op]
+    let k = tracker_playback.song_cell_idx(pat, row, ch)
+    let period = tracker_state.song_period[k]
+    let inst = tracker_state.song_inst[k]
+    let fx = tracker_state.song_fx[k]
+    let param = tracker_state.song_param[k]
+    let ?name = "---"
+    if period > 0
+        name = tracker_mod.note_name(tracker_mod.nearest_note(period))
+    <- name + tracker_mod.hex2(inst) + tracker_mod.hex1(fx) + tracker_mod.hex2(param)
+;
+
+:: channel_type(track = num) (( string ))
+    if tracker_state.song_loaded && track < tracker_constants.MOD_CHANNELS
+        let smp = tracker_state.ch_sample[track]
+        if smp >= 1 && smp < tracker_constants.MAX_SAMPLES && tracker_state.sample_length[smp] > 0
+            <- "PCM"
+    if track >= 0 && track < tracker_constants.TRACKS
+        <- tracker_mod.wave_type(tracker_state.waves[track])
+    <- "OFF"
+;
+
+:: set_extra_channel_waves() (( -- ))
+    if stdr.len(tracker_state.waves) >= 8
+        tracker_state.waves[4] = vimana.wave_triangle
+        tracker_state.waves[5] = vimana.wave_sawtooth
+        tracker_state.waves[6] = vimana.wave_pulse
+        tracker_state.waves[7] = vimana.wave_psg
+;
+
+:: ensure_editor_arrays() (( -- ))
+    let need_cells = total_steps() * tracker_constants.TRACKS
+    let n_notes = stdr.len(tracker_state.notes)
+    for (let ?i = n_notes; i < need_cells; i += 1)
+        stdr.push(tracker_state.notes, tracker_constants.NOTE_HOLD)
+    let n_vols = stdr.len(tracker_state.vols)
+    for (let ?i = n_vols; i < need_cells; i += 1)
+        stdr.push(tracker_state.vols, 0)
+    let n_waves = stdr.len(tracker_state.waves)
+    for (let ?i = n_waves; i < tracker_constants.TRACKS; i += 1)
+        stdr.push(tracker_state.waves, vimana.wave_pulse)
+    set_extra_channel_waves()
+;
+
+:: set_note(sys = vimana.system, semi = num) (( -- ))
+    let k = idx(tracker_state.cursor_step, tracker_state.cursor_track)
+    tracker_state.notes[k] = tracker_state.octave * 12 + semi
+    if tracker_state.vols[k] <= 0
+        tracker_state.vols[k] = 12
+    sys.begin_audio()
+    sys.set_voice(tracker_state.cursor_track, tracker_state.waves[tracker_state.cursor_track])
+    sys.play_voice(tracker_state.cursor_track, tracker_state.notes[k], tracker_state.vols[k])
+    sys.end_audio()
+    tracker_state.dirty = true
+;
+
+:: rest_at_cursor(sys = vimana.system) (( -- ))
+    let k = idx(tracker_state.cursor_step, tracker_state.cursor_track)
+    tracker_state.notes[k] = tracker_constants.NOTE_REST
+    tracker_state.vols[k] = 0
+    sys.stop_voice(tracker_state.cursor_track)
+    tracker_state.dirty = true
+;
+
+:: bump_pattern(i = num, delta = num) (( -- ))
+    if !tracker_state.song_loaded
+        <-
+    if i < 0 || i >= tracker_state.song_length
+        <-
+    let ?p = tracker_state.song_orders[i] + delta
+    if p < 0
+        p = tracker_constants.MAX_PATTERNS - 1
+    if p >= tracker_constants.MAX_PATTERNS
+        p = 0
+    tracker_state.song_orders[i] = p
+    if p + 1 > tracker_state.song_pattern_count
+        tracker_state.song_pattern_count = p + 1
+    tracker_state.dirty = true
+;
+
+:: extend_song_to(i = num) (( -- ))
+    if !tracker_state.song_loaded
+        <-
+    if i >= tracker_constants.MAX_ORDERS
+        <-
+    if i < tracker_state.song_length
+        <-
+    for (let ?j = tracker_state.song_length; j <= i; j += 1)
+        tracker_state.song_orders[j] = 0
+    tracker_state.song_length = i + 1
+    if tracker_state.song_pattern_count < 1
+        tracker_state.song_pattern_count = 1
+    tracker_state.song_orders[i] = 1
+    if tracker_state.song_pattern_count < 2
+        tracker_state.song_pattern_count = 2
+    tracker_state.dirty = true
+;
+
+:: shrink_song_at(i = num) (( -- ))
+    if !tracker_state.song_loaded
+        <-
+    if i < 0 || i >= tracker_state.song_length
+        <-
+    if i == tracker_state.song_length - 1
+        tracker_state.song_orders[i] = 0
+        if tracker_state.song_length > 1
+            tracker_state.song_length -= 1
+        if tracker_state.selected_order >= tracker_state.song_length
+            tracker_state.selected_order = tracker_state.song_length - 1
+    else
+        tracker_state.song_orders[i] = 0
+    if tracker_state.song_restart >= tracker_state.song_length
+        tracker_state.song_restart = 0
+    tracker_state.dirty = true
+;
+
+:: new_file(sys = vimana.system) (( -- ))
+    tracker_state.playing = false
+    tracker_state.play_paused = false
+    tracker_playback.stop_all(sys)
+    tracker_state.song_loaded = false
+    tracker_state.song_duration_label = "00:00"
+    tracker_state.file_path = ""
+    tracker_state.tracker_filename = "tracker.mod"
+    tracker_state.editing_filename = false
+    tracker_state.cursor_step = 0
+    tracker_state.cursor_track = 0
+    tracker_state.page = 0
+    tracker_state.play_step = 0
+    tracker_state.bpm = 128
+    tracker_state.view_mode = 0
+    tracker_state.sample_view_index = 1
+    tracker_samples.invalidate_sample_peaks()
+    for (let ?i = 0; i < stdr.len(tracker_state.sample_bytes); i += 1)
+        tracker_state.sample_bytes[i] = []: [any]
+    let n = stdr.len(tracker_state.notes)
+    for (let ?i = 0; i < n; i += 1)
+        tracker_state.notes[i] = tracker_constants.NOTE_HOLD
+        tracker_state.vols[i] = 0
+    tracker_state.waves[0] = vimana.wave_pulse
+    tracker_state.waves[1] = vimana.wave_pulse
+    tracker_state.waves[2] = vimana.wave_pulse
+    tracker_state.waves[3] = vimana.wave_pulse
+    set_extra_channel_waves()
+    tracker_playback.setup_audio(sys)
+    tracker_state.dirty = true
+;

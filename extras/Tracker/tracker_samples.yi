@@ -1,0 +1,335 @@
+cask tracker_samples
+
+bring stdr
+bring vimana
+bring tracker_constants
+bring tracker_mod
+bring tracker_state
+
+:: sample_signed_byte(slice = any, i = num) (( num ))
+    let b = tracker_mod.byte_at(slice, i)
+    if b > 127
+        <- b - 256
+    <- b
+;
+
+:: invalidate_sample_peaks() (( -- ))
+    tracker_state.sample_peaks_for = -1
+;
+
+:: clamp_sample_view() (( -- ))
+    if tracker_state.sample_view_index < 1
+        tracker_state.sample_view_index = tracker_constants.MAX_SAMPLES - 1
+    if tracker_state.sample_view_index >= tracker_constants.MAX_SAMPLES
+        tracker_state.sample_view_index = 1
+;
+
+:: reupload_sample(sys = vimana.system, i = num) (( -- ))
+    if i <= 0 || i >= tracker_constants.MAX_SAMPLES
+        <-
+    let arr = tracker_state.sample_bytes[i]
+    let n = stdr.len(arr)
+    if n == 0
+        <-
+    let ?ls = tracker_state.sample_loop_start[i]
+    let ?ll = tracker_state.sample_loop_len[i]
+    if ll <= 2 || ls + ll > n
+        ls = 0
+        ll = 0
+    sys.set_sample(i, arr, ls, ll)
+;
+
+:: clamp_sample_volume(v = num) (( num ))
+    if v < 0
+        <- 0
+    if v > 64
+        <- 64
+    <- v
+;
+
+:: clamp_sample_finetune(v = num) (( num ))
+    if v < -8
+        <- -8
+    if v > 7
+        <- 7
+    <- v
+;
+
+:: clamp_loop_value(v = num, max_v = num) (( num ))
+    if v < 0
+        <- 0
+    if v > max_v
+        <- max_v
+    <- v
+;
+
+:: even_floor(v = num) (( num ))
+    if v < 0
+        v = 0
+    <- stdr.floor(v / 2) * 2
+;
+
+:: adjust_sample_field(sys = vimana.system, field = num, delta = num) (( -- ))
+    let i = tracker_state.sample_view_index
+    if i <= 0 || i >= tracker_constants.MAX_SAMPLES
+        <-
+    if field == 1
+        tracker_state.sample_volume[i] = clamp_sample_volume(tracker_state.sample_volume[i] + delta)
+        tracker_state.dirty = true
+        <-
+    if field == 2
+        tracker_state.sample_finetune[i] = clamp_sample_finetune(tracker_state.sample_finetune[i] + delta)
+        tracker_state.dirty = true
+        <-
+    let len = tracker_state.sample_length[i]
+    if field == 3
+        let ?max_start = len - 2
+        if max_start < 0
+            max_start = 0
+        tracker_state.sample_loop_start[i] = even_floor(clamp_loop_value(tracker_state.sample_loop_start[i] + delta * 2, max_start))
+        if tracker_state.sample_loop_start[i] + tracker_state.sample_loop_len[i] > len
+            let ?nl = len - tracker_state.sample_loop_start[i]
+            if nl < 0
+                nl = 0
+            tracker_state.sample_loop_len[i] = even_floor(nl)
+        if tracker_state.sample_loop_len[i] > 2
+            tracker_state.sample_loop[i] = 1
+        else
+            tracker_state.sample_loop[i] = 0
+        reupload_sample(sys, i)
+        tracker_state.dirty = true
+        <-
+    if field == 4
+        let ?max_len = len - tracker_state.sample_loop_start[i]
+        if max_len < 0
+            max_len = 0
+        tracker_state.sample_loop_len[i] = even_floor(clamp_loop_value(tracker_state.sample_loop_len[i] + delta * 2, max_len))
+        if tracker_state.sample_loop_len[i] > 2
+            tracker_state.sample_loop[i] = 1
+        else
+            tracker_state.sample_loop[i] = 0
+        reupload_sample(sys, i)
+        tracker_state.dirty = true
+        <-
+;
+
+:: handle_sample_field_btn(sys = vimana.system, btn = num) (( -- ))
+    let ?delta = 1
+    if btn % 2 == 0
+        delta = -1
+    let field = stdr.floor(btn / 2) + 1
+    adjust_sample_field(sys, field, delta)
+;
+
+:: finish_sample_name_edit() (( -- ))
+    tracker_state.editing_sample_name = false
+    tracker_state.dirty = true
+;
+
+:: edit_sample_name_text(txt = string) (( -- ))
+    let i = tracker_state.sample_view_index
+    if i <= 0 || i >= tracker_constants.MAX_SAMPLES
+        <-
+    for (let ?j = 0; j < stdr.len(txt); j += 1)
+        if stdr.len(tracker_state.sample_name[i]) < 22
+            tracker_state.sample_name[i] = tracker_state.sample_name[i] + stdr.char_at(txt, j)
+    tracker_state.dirty = true
+;
+
+:: backspace_sample_name() (( -- ))
+    let i = tracker_state.sample_view_index
+    if i <= 0 || i >= tracker_constants.MAX_SAMPLES
+        <-
+    let n = stdr.len(tracker_state.sample_name[i])
+    if n > 0
+        tracker_state.sample_name[i] = stdr.slice(tracker_state.sample_name[i], 0, n - 1)
+    tracker_state.dirty = true
+;
+
+:: clear_sample_selection() (( -- ))
+    tracker_state.sample_sel_start = -1
+    tracker_state.sample_sel_end = -1
+    tracker_state.sample_dragging = false
+    tracker_state.dirty = true
+;
+
+:: sample_name_from_path(path = string) (( string ))
+    let ?last = -1
+    for (let ?i = 0; i < stdr.len(path); i += 1)
+        let c = stdr.char_at(path, i)
+        if c == "/" || c == "\\"
+            last = i
+    let ?name = path
+    if last >= 0
+        name = stdr.slice(path, last + 1, stdr.len(path))
+    if stdr.ends_with(name, ".wav") || stdr.ends_with(name, ".WAV")
+        name = stdr.slice(name, 0, stdr.len(name) - 4)
+    if stdr.ends_with(name, ".raw") || stdr.ends_with(name, ".RAW")
+        name = stdr.slice(name, 0, stdr.len(name) - 4)
+    if stdr.len(name) > 22
+        name = stdr.slice(name, 0, 22)
+    <- name
+;
+
+:: sample_byte_at_x(px = num) (( num ))
+    let arr = tracker_state.sample_bytes[tracker_state.sample_view_index]
+    let n = stdr.len(arr)
+    if n <= 0 || tracker_state.sample_wave_geom_w <= 0
+        <- 0
+    let inner_x0 = tracker_state.sample_wave_geom_x0 + 2
+    let ?rel = px - inner_x0
+    if rel < 0
+        rel = 0
+    let inner_w = tracker_state.sample_wave_geom_w - 4
+    if inner_w < 1
+        inner_w = 1
+    if rel > inner_w
+        rel = inner_w
+    let ?b = stdr.floor((rel * n) / inner_w)
+    if b < 0
+        b = 0
+    if b > n
+        b = n
+    <- b
+;
+
+:: in_sample_waveform(dev = vimana.device) (( bool ))
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    <- mx >= tracker_state.sample_wave_geom_x0 && mx < tracker_state.sample_wave_geom_x0 + tracker_state.sample_wave_geom_w && my >= tracker_state.sample_wave_geom_y0 && my < tracker_state.sample_wave_geom_y0 + tracker_state.sample_wave_geom_h
+;
+
+:: begin_sample_drag(dev = vimana.device) (( bool ))
+    if !in_sample_waveform(dev)
+        <- false
+    let arr = tracker_state.sample_bytes[tracker_state.sample_view_index]
+    if stdr.len(arr) <= 0
+        <- false
+    let b = sample_byte_at_x(dev.pointer_x())
+    tracker_state.sample_drag_origin = b
+    tracker_state.sample_sel_start = b
+    tracker_state.sample_sel_end = b
+    tracker_state.sample_dragging = true
+    tracker_state.dirty = true
+    <- true
+;
+
+:: update_sample_drag(dev = vimana.device) (( -- ))
+    if !tracker_state.sample_dragging
+        <-
+    let b = sample_byte_at_x(dev.pointer_x())
+    if b < tracker_state.sample_drag_origin
+        tracker_state.sample_sel_start = b
+        tracker_state.sample_sel_end = tracker_state.sample_drag_origin
+    else
+        tracker_state.sample_sel_start = tracker_state.sample_drag_origin
+        tracker_state.sample_sel_end = b
+    tracker_state.dirty = true
+;
+
+:: cut_sample_to_selection(sys = vimana.system) (( -- ))
+    if tracker_state.sample_sel_start < 0 || tracker_state.sample_sel_end <= tracker_state.sample_sel_start
+        <-
+    let i = tracker_state.sample_view_index
+    if i <= 0 || i >= tracker_constants.MAX_SAMPLES
+        <-
+    let arr = tracker_state.sample_bytes[i]
+    let n = stdr.len(arr)
+    if n <= 0
+        <-
+    let ?s = tracker_state.sample_sel_start
+    let ?e = tracker_state.sample_sel_end
+    if s < 0
+        s = 0
+    if e > n
+        e = n
+    s = even_floor(s)
+    e = even_floor(e)
+    if e <= s
+        <-
+    let ?out = []: [any]
+    for (let ?j = s; j < e; j += 1)
+        stdr.push(out, tracker_mod.byte_at(arr, j))
+    tracker_state.sample_bytes[i] = out
+    tracker_state.sample_length[i] = e - s
+    if tracker_state.sample_loop[i] != 0
+        let ls = tracker_state.sample_loop_start[i]
+        let ll = tracker_state.sample_loop_len[i]
+        let new_ls = ls - s
+        if new_ls < 0 || ls < s || ls >= e
+            tracker_state.sample_loop[i] = 0
+            tracker_state.sample_loop_start[i] = 0
+            tracker_state.sample_loop_len[i] = 0
+        else
+            tracker_state.sample_loop_start[i] = new_ls
+            if new_ls + ll > e - s
+                tracker_state.sample_loop_len[i] = (e - s) - new_ls
+    invalidate_sample_peaks()
+    reupload_sample(sys, i)
+    clear_sample_selection()
+    tracker_state.dirty = true
+;
+
+:: set_loop_from_selection(sys = vimana.system) (( -- ))
+    if tracker_state.sample_sel_start < 0 || tracker_state.sample_sel_end <= tracker_state.sample_sel_start
+        <-
+    let i = tracker_state.sample_view_index
+    if i <= 0 || i >= tracker_constants.MAX_SAMPLES
+        <-
+    let n = tracker_state.sample_length[i]
+    let ?s = even_floor(tracker_state.sample_sel_start)
+    let ?e = even_floor(tracker_state.sample_sel_end)
+    if e > n
+        e = n
+    if s >= e
+        <-
+    tracker_state.sample_loop_start[i] = s
+    tracker_state.sample_loop_len[i] = e - s
+    if tracker_state.sample_loop_len[i] > 2
+        tracker_state.sample_loop[i] = 1
+    else
+        tracker_state.sample_loop[i] = 0
+    reupload_sample(sys, i)
+    tracker_state.dirty = true
+;
+
+:: recompute_sample_peaks(plot_w = num) (( -- ))
+    if tracker_state.sample_peaks_for == tracker_state.sample_view_index && tracker_state.sample_peaks_w == plot_w
+        <-
+    let slice = tracker_state.sample_bytes[tracker_state.sample_view_index]
+    let n = stdr.len(slice)
+    let peaks_lo = tracker_state.sample_peaks_lo
+    let peaks_hi = tracker_state.sample_peaks_hi
+    let cur = stdr.len(peaks_lo)
+    for (let ?i = cur; i < plot_w; i += 1)
+        stdr.push(peaks_lo, 0)
+        stdr.push(peaks_hi, 0)
+    if n <= 0 || plot_w <= 0
+        for (let ?px = 0; px < plot_w; px += 1)
+            peaks_lo[px] = 0
+            peaks_hi[px] = 0
+        tracker_state.sample_peaks_for = tracker_state.sample_view_index
+        tracker_state.sample_peaks_w = plot_w
+        <-
+    for (let ?px = 0; px < plot_w; px += 1)
+        let i0 = stdr.floor((px * n) / plot_w)
+        let ?i1 = stdr.floor(((px + 1) * n) / plot_w)
+        if i1 <= i0
+            i1 = i0 + 1
+        if i1 > n
+            i1 = n
+        let ?lo = 127
+        let ?hi = -128
+        for (let ?j = i0; j < i1; j += 1)
+            let ?v = slice[j]
+            if v > 127
+                v = v - 256
+            if v < lo
+                lo = v
+            if v > hi
+                hi = v
+        peaks_lo[px] = lo
+        peaks_hi[px] = hi
+    tracker_state.sample_peaks_for = tracker_state.sample_view_index
+    tracker_state.sample_peaks_w = plot_w
+;

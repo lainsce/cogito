@@ -3,3132 +3,369 @@ cask main
 bring stdr
 bring vimana
 bring tracker_font
+bring tracker_constants
+bring tracker_state
+bring tracker_editor
+bring tracker_playback
+bring tracker_io
+bring tracker_samples
+bring tracker_ui
 bring tracker_demo
-bring tracker_mod
-bring tracker_draw
-
-def SCREEN_W = 924
-def SCREEN_H = 417
-def SCALE = 1
-
-def PAGE_COUNT = 32
-def PAGE_STEPS = 64
-def STEPS = PAGE_COUNT * PAGE_STEPS
-def VISIBLE_STEPS = 15
-def TRACKS = 8
-def MOD_CHANNELS = 4
-
-def FONT_H = 17 -- 16 + 1px of space
-def CELL_W = 96
-def ROW_H = FONT_H
-def MAP_X = 16
-def MAP_Y = 148
-def MAP_CELL_W = 10
-def MAP_CELL_H = 8
-def MAP_COLS = 8
-def GRID_X = 148
-def GRID_Y = 148
-def SCOPE_Y = 92
-def SCOPE_H = 48
-def SCOPE_COLS = 24
-
-def KEY_RIGHT = 79
-def KEY_LEFT = 80
-def KEY_DOWN = 81
-def KEY_UP = 82
-def KEY_SPACE = 44
-def KEY_RETURN = 40
-def KEY_BACKSPACE = 42
-def KEY_ESCAPE = 41
-def KEY_LBRACKET = 47
-def KEY_RBRACKET = 48
-def KEY_PAGEUP = 75
-def KEY_PAGEDOWN = 78
-def KEY_MINUS = 45
-def KEY_EQUALS = 46
-def KEY_1 = 30
-def KEY_2 = 31
-def KEY_3 = 32
-def KEY_4 = 33
-def KEY_5 = 34
-def KEY_COMMA = 54
-def KEY_PERIOD = 55
-def KEY_Q = 20
-def KEY_W = 26
-def KEY_E = 8
-def KEY_R = 21
-def KEY_F = 9
-def KEY_H = 11
-def KEY_O = 18
-def KEY_S = 22
-def KEY_LGUI = 227
-def KEY_RGUI = 231
-def KEY_LSHIFT = 225
-def KEY_RSHIFT = 229
-
-def ?notes = []: [num]
-def ?vols = []: [num]
-def ?waves = []: [num]
-def ?cursor_step = 0
-def ?cursor_track = 0
-def ?play_step = 0
-def ?page = 0
-def ?playing = false
-def ?play_paused = false
-def ?bpm = 128
-def ?octave = 4
-def ?master = 12
-def ?cutoff = 1300
-def ?resonance = 4
-def ?filter_mode = 1
-def ?song_tick_acc = 0
-def ?last_tick = 0
-def ?scope_tick = 0
-def ?show_help = false
-def ?dirty = true
-def ?file_path = ""
-def ?tracker_filename = "tracker.mod"
-def ?editing_filename = false
-def ?view_mode = 0
-def ?sample_view_index = 1
-def ?button_down = false
-def ?transport_btn_hover = -1
-def ?view_btn_hover = -1
-def ?sample_nav_hover = -1
-def ?sample_peaks_lo = []: [num]
-def ?sample_peaks_hi = []: [num]
-def ?sample_peaks_for = -1
-def ?sample_peaks_w = 0
-
-def ?selected_order = -1
-def ?pattern_hover_index = -1
-
-def ?editing_sample_name = false
-def ?sample_field_hover = -1
-def ?sample_btn_hover = -1
-def ?sample_load_hover = false
-
-def ?sample_sel_start = -1
-def ?sample_sel_end = -1
-def ?sample_dragging = false
-def ?sample_drag_origin = -1
-def ?sample_action_hover = -1
-def ?sample_wave_geom_x0 = 0
-def ?sample_wave_geom_y0 = 0
-def ?sample_wave_geom_w = 0
-def ?sample_wave_geom_h = 0
-
-def NOTE_HOLD = -1
-def NOTE_REST = -2
-def HEADER_FILE_X = 16
-def HEADER_FILE_Y = 33
-def HEADER_FILE_W = 240
-
-def MAX_PATTERNS = 64
-def MAX_CELLS = MAX_PATTERNS * 64 * MOD_CHANNELS
-def MAX_SAMPLES = 32
-def MAX_ORDERS = 256
-def MOD_VOLUME_MAX = 15
-
--- MOD song layer (used when a .mod file has been loaded). The original
--- editor grid (notes/vols/waves) stays around for free composing; when a
--- song is loaded, playback runs from this structure with proper
--- timing and effect handling instead of the simple grid step engine.
-def ?song_loaded = false
-def ?song_orders = []: [num]
-def ?song_length = 0
-def ?song_pattern_count = 0
-def ?song_restart = 0
-def ?song_duration_label = "00:00"
-def ?song_period = []: [num]
-def ?song_inst = []: [num]
-def ?song_fx = []: [num]
-def ?song_param = []: [num]
-def ?sample_volume = []: [num]
-def ?sample_wave = []: [num]
-def ?sample_finetune = []: [num]
-def ?sample_loop = []: [num]
-def ?sample_data_off = []: [num]
-def ?sample_length = []: [num]
-def ?sample_loop_start = []: [num]
-def ?sample_loop_len = []: [num]
-def ?sample_name = []: [string]
-def ?sample_bytes = []: [any]
-def ?song_arrays_ready = false
-
--- MOD player runtime state. `play_order` indexes song_orders; `play_row`
--- is 0..63 within the current pattern; `play_tick` counts ticks since
--- the row started, with `play_speed` ticks per row and `play_tempo`
--- BPM driving the tick rate (tick_ms = 2500 / tempo).
-def ?play_order = 0
-def ?play_row = 0
-def ?play_tick = 0
-def ?play_speed = 6
-def ?play_tempo = 125
-def ?play_break_row = -1
-def ?play_jump_order = -1
-def ?ch_period = []: [num]
-def ?ch_volume = []: [num]
-def ?ch_sample = []: [num]
-def ?ch_vslide_up = []: [num]
-def ?ch_vslide_down = []: [num]
-def ?ch_pslide_up = []: [num]
-def ?ch_pslide_down = []: [num]
-def ?ch_arp_x = []: [num]
-def ?ch_arp_y = []: [num]
-def ?ch_porta_target = []: [num]
-def ?ch_porta_speed = []: [num]
-def ?ch_vibrato_pos = []: [num]
-def ?ch_vibrato_speed = []: [num]
-def ?ch_vibrato_depth = []: [num]
-def ?ch_tremolo_pos = []: [num]
-def ?ch_tremolo_speed = []: [num]
-def ?ch_tremolo_depth = []: [num]
-def ?ch_note_cut = []: [num]
-def ?ch_retrigger = []: [num]
-
-: idx(step = num, track = num) (( num ))
-    <- step * TRACKS + track
-;
-
-: page_steps() (( num ))
-    if PAGE_STEPS <= 0
-        <- 1
-    <- PAGE_STEPS
-;
-
-: total_steps() (( num ))
-    if STEPS <= 0
-        <- 1
-    <- STEPS
-;
-
-: map_cols() (( num ))
-    if MAP_COLS <= 0
-        <- 1
-    <- MAP_COLS
-;
-
-: scope_cols() (( num ))
-    if SCOPE_COLS <= 0
-        <- 1
-    <- SCOPE_COLS
-;
-
-: cell_w() (( num ))
-    if CELL_W <= 0
-        <- 1
-    <- CELL_W
-;
-
-: row_h() (( num ))
-    if ROW_H <= 0
-        <- 1
-    <- ROW_H
-;
-
-: clamp_cursor() (( -- ))
-    if cursor_step < 0
-        cursor_step = 0
-    if cursor_step >= total_steps()
-        cursor_step = total_steps() - 1
-    if cursor_track < 0
-        cursor_track = 0
-    if cursor_track >= TRACKS
-        cursor_track = TRACKS - 1
-    page = stdr.floor(cursor_step / page_steps())
-;
-
-: page_start() (( num ))
-    <- page * page_steps()
-;
-
-: page_end() (( num ))
-    <- page_start() + page_steps()
-;
-
-: set_page(p = num) (( -- ))
-    if p < 0
-        p = 0
-    if p >= PAGE_COUNT
-        p = PAGE_COUNT - 1
-    page = p
-    cursor_step = page * page_steps()
-    dirty = true
-;
-
-: path_join(dir = string, name = string) (( string ))
-    if stdr.len(dir) == 0
-        <- name
-    if dir == "/"
-        <- "/" + name
-    <- dir + "/" + name
-;
-
-: set_tracker_path(path = string) (( -- ))
-    file_path = path
-    if stdr.len(path) > 0
-        tracker_filename = stdr.basename(path)
-;
-
-: apply_tracker_filename() (( -- ))
-    if stdr.len(tracker_filename) == 0
-        tracker_filename = "tracker.mod"
-    let ?dir = stdr.dirname(file_path)
-    file_path = path_join(dir, tracker_filename)
-;
-
-: tracker_title() (( string ))
-    let ?name = tracker_filename
-    if stdr.len(name) == 0
-        name = "tracker.mod"
-    <- name
-;
-
-: tracker_mod_title() (( string ))
-    let ?name = tracker_title()
-    if stdr.ends_with(name, ".mod") || stdr.ends_with(name, ".MOD")
-        name = stdr.slice(name, 0, stdr.len(name) - 4)
-    <- name
-;
-
-: header_file_label() (( string ))
-    let ?name = tracker_title()
-    if stdr.len(name) > 24
-        name = stdr.slice(name, 0, 24)
-    if editing_filename
-        <- name + "_"
-    <- name
-;
-
-: finish_filename_edit() (( -- ))
-    editing_filename = false
-    apply_tracker_filename()
-    dirty = true
-;
-
-: edit_filename_text(txt = string) (( -- ))
-    for (let ?i = 0; i < stdr.len(txt); i += 1)
-        if stdr.len(tracker_filename) < 32
-            tracker_filename = tracker_filename + stdr.char_at(txt, i)
-    dirty = true
-;
-
-: backspace_filename() (( -- ))
-    let n = stdr.len(tracker_filename)
-    if n > 0
-        tracker_filename = stdr.slice(tracker_filename, 0, n - 1)
-    dirty = true
-;
-
-: song_step_text(step = num, ch = num) (( string ))
-    if !song_loaded || ch >= MOD_CHANNELS
-        let k = idx(step, ch)
-        let ?name = tracker_mod.note_name(notes[k])
-        let ?inst = tracker_mod.wave_code(waves[ch])
-        let ?vol = vols[k]
-        if vol < 0
-            vol = 0
-        if vol > 15
-            vol = 15
-        <- name + tracker_mod.hex2(inst) + "C" + tracker_mod.hex2(vol)
-    let op = stdr.floor(step / 64)
-    if op < 0 || op >= song_length
-        <- "--------"
-    let row = step % 64
-    let pat = song_orders[op]
-    let k = song_cell_idx(pat, row, ch)
-    let period = song_period[k]
-    let inst = song_inst[k]
-    let fx = song_fx[k]
-    let param = song_param[k]
-    let ?name = "---"
-    if period > 0
-        name = tracker_mod.note_name(tracker_mod.nearest_note(period))
-    <- name + tracker_mod.hex2(inst) + tracker_mod.hex1(fx) + tracker_mod.hex2(param)
-;
-
-: channel_type(track = num) (( string ))
-    if song_loaded && track < MOD_CHANNELS
-        let smp = ch_sample[track]
-        if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
-            <- "PCM"
-    if track >= 0 && track < TRACKS
-        <- tracker_mod.wave_type(waves[track])
-    <- "OFF"
-;
-
-: set_extra_channel_waves() (( -- ))
-    if stdr.len(waves) >= 8
-        waves[4] = vimana.wave_triangle
-        waves[5] = vimana.wave_sawtooth
-        waves[6] = vimana.wave_pulse
-        waves[7] = vimana.wave_psg
-;
-
-: push_byte(out = any, b = num) (( -- ))
-    if b < 0
-        b = 256 + (b % 256)
-    stdr.push(out, b % 256)
-;
-
-: push_be16(out = any, v = num) (( -- ))
-    push_byte(out, stdr.floor(v / 256))
-    push_byte(out, v % 256)
-;
-
-: push_text_fixed(out = any, text = string, size = num) (( -- ))
-    for (let ?i = 0; i < size; i += 1)
-        if i < stdr.len(text)
-            push_byte(out, stdr.char_code(stdr.char_at(text, i)))
-        else
-            push_byte(out, 0)
-;
-
-: mod_pattern_count() (( num ))
-    <- stdr.floor((total_steps() + 63) / 64)
-;
-
--- ── MOD song parsing & playback ─────────────────────────────────────
-
-: song_cell_idx(pat = num, row = num, ch = num) (( num ))
-    <- pat * 64 * MOD_CHANNELS + row * MOD_CHANNELS + ch
-;
-
-: period_to_freq16(period = num) (( num ))
-    if period < 28
-        <- 0
-    let ?fr = stdr.floor(457769 / period)
-    if fr > 65535
-        fr = 65535
-    if fr < 0
-        fr = 0
-    <- fr
-;
-
-: apply_channel_period(sys = vimana.system, ch = num, period = num) (( -- ))
-    let smp = ch_sample[ch]
-    if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
-        sys.set_frequency(ch, period)
-    else
-        sys.set_frequency(ch, period_to_freq16(period))
-;
-
-: period_shift(period = num, semis = num) (( num ))
-    if period <= 0
-        <- 0
-    let n = tracker_mod.nearest_note(period) + semis
-    <- tracker_mod.period_for_note(n)
-;
-
-: vibrato_delta(pos = num, depth = num) (( num ))
-    let phase = pos % 64
-    let ?wave = phase
-    if phase >= 32
-        wave = 63 - phase
-    wave = wave - 16
-    <- stdr.floor((wave * depth) / 8)
-;
-
-: tempo_tick_ms() (( num ))
-    let ?tempo = play_tempo
-    if tempo < 1
-        tempo = 1
-    <- 2500 / tempo
-;
-
-: editor_step_ms() (( num ))
-    let ?rate = bpm
-    if rate < 1
-        rate = 1
-    <- stdr.floor(60000 / rate / 12)
-;
-
-: vol_mod_to_vim(v = num) (( num ))
-    if v <= 0
-        <- 0
-    if v >= 64
-        <- MOD_VOLUME_MAX
-    <- stdr.floor((v * v * MOD_VOLUME_MAX + 2048) / 4096)
-;
-
-: classify_sample_bytes(bytes = any, off = num, length = num) (( num ))
-    if length < 16
-        <- vimana.wave_pulse
-    let ?limit = length
-    if limit > 4096
-        limit = 4096
-    let ?zc = 0
-    let ?prev_pos = 1
-    for (let ?i = 0; i < limit; i += 1)
-        let b = byte_at(bytes, off + i)
-        let ?signed = b
-        if signed > 127
-            signed = signed - 256
-        let ?pos = 0
-        if signed >= 0
-            pos = 1
-        if i > 0 && pos != prev_pos
-            zc += 1
-        prev_pos = pos
-    if zc * 5 > limit * 2
-        <- vimana.wave_noise
-    if length > 8000
-        <- vimana.wave_triangle
-    <- vimana.wave_pulse
-;
-
-: song_alloc() (( -- ))
-    if song_arrays_ready
-        <-
-    for (let ?i = 0; i < MAX_ORDERS; i += 1)
-        stdr.push(song_orders, 0)
-    for (let ?i = 0; i < MAX_CELLS; i += 1)
-        stdr.push(song_period, 0)
-        stdr.push(song_inst, 0)
-        stdr.push(song_fx, 0)
-        stdr.push(song_param, 0)
-    for (let ?i = 0; i < MAX_SAMPLES; i += 1)
-        stdr.push(sample_volume, 0)
-        stdr.push(sample_wave, vimana.wave_pulse)
-        stdr.push(sample_finetune, 0)
-        stdr.push(sample_loop, 0)
-        stdr.push(sample_data_off, 0)
-        stdr.push(sample_length, 0)
-        stdr.push(sample_loop_start, 0)
-        stdr.push(sample_loop_len, 0)
-        stdr.push(sample_name, "")
-        stdr.push(sample_bytes, []: [any])
-    for (let ?ch = 0; ch < TRACKS; ch += 1)
-        stdr.push(ch_period, 0)
-        stdr.push(ch_volume, 0)
-        stdr.push(ch_sample, 0)
-        stdr.push(ch_vslide_up, 0)
-        stdr.push(ch_vslide_down, 0)
-        stdr.push(ch_pslide_up, 0)
-        stdr.push(ch_pslide_down, 0)
-        stdr.push(ch_arp_x, 0)
-        stdr.push(ch_arp_y, 0)
-        stdr.push(ch_porta_target, 0)
-        stdr.push(ch_porta_speed, 0)
-        stdr.push(ch_vibrato_pos, 0)
-        stdr.push(ch_vibrato_speed, 0)
-        stdr.push(ch_vibrato_depth, 0)
-        stdr.push(ch_tremolo_pos, 0)
-        stdr.push(ch_tremolo_speed, 0)
-        stdr.push(ch_tremolo_depth, 0)
-        stdr.push(ch_note_cut, -1)
-        stdr.push(ch_retrigger, 0)
-    song_arrays_ready = true
-;
-
-: ensure_editor_arrays() (( -- ))
-    let need_cells = total_steps() * TRACKS
-    let n_notes = stdr.len(notes)
-    for (let ?i = n_notes; i < need_cells; i += 1)
-        stdr.push(notes, NOTE_HOLD)
-    let n_vols = stdr.len(vols)
-    for (let ?i = n_vols; i < need_cells; i += 1)
-        stdr.push(vols, 0)
-    let n_waves = stdr.len(waves)
-    for (let ?i = n_waves; i < TRACKS; i += 1)
-        stdr.push(waves, vimana.wave_pulse)
-    set_extra_channel_waves()
-;
-
-: read_mod_text(bytes = any, off = num, size = num) (( string ))
-    let ?out = ""
-    let ?last = 0
-    let ?active = true
-    for (let ?i = 0; i < size; i += 1)
-        let b = byte_at(bytes, off + i)
-        if active && b >= 32 && b < 127
-            out = out + stdr.char_from_code(b)
-            if b != 32
-                last = stdr.len(out)
-        elif b == 0
-            active = false
-    if last < stdr.len(out)
-        out = stdr.slice(out, 0, last)
-    <- out
-;
-
-: current_sample_index() (( num ))
-    if !song_loaded
-        <- 0
-    let ?track = cursor_track
-    if playing
-        track = cursor_track
-    if track < 0 || track >= MOD_CHANNELS
-        <- 0
-    let ?smp = 0
-    if playing
-        smp = ch_sample[track]
-    else
-        let op = stdr.floor(cursor_step / 64)
-        let row = cursor_step % 64
-        if op >= 0 && op < song_length
-            let pat = song_orders[op]
-            let k = song_cell_idx(pat, row, track)
-            smp = song_inst[k]
-    if smp <= 0 || smp >= MAX_SAMPLES
-        smp = ch_sample[track]
-    if smp < 0 || smp >= MAX_SAMPLES
-        <- 0
-    <- smp
-;
-
-: current_sample_name() (( string ))
-    let smp = current_sample_index()
-    if smp <= 0 || smp >= MAX_SAMPLES
-        <- "--"
-    let ?name = sample_name[smp]
-    if stdr.len(name) == 0
-        name = "SAMPLE " + tracker_mod.hex2(smp)
-    if stdr.len(name) > 18
-        name = stdr.slice(name, 0, 18)
-    <- name
-;
-
-: row_time_ms(speed = num, tempo = num) (( num ))
-    if speed < 1
-        speed = 1
-    if tempo < 1
-        tempo = 1
-    <- stdr.floor((speed * 2500) / tempo)
-;
-
-: song_duration_ms() (( num ))
-    if !song_loaded
-        <- 0
-    let ?order = 0
-    let ?row = 0
-    let ?speed = 6
-    let ?tempo = 125
-    let ?ms = 0
-    let ?guard = 0
-    let max_rows = song_length * 64 + 1
-    for (let ?step = 0; step < max_rows; step += 1)
-        if order >= 0 && order < song_length
-            let pat = song_orders[order]
-            let ?jump_order = -1
-            let ?break_row = -1
-            for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
-                let k = song_cell_idx(pat, row, ch)
-                let fx = song_fx[k]
-                let param = song_param[k]
-                if fx == 0xF
-                    if param > 0 && param <= 31
-                        speed = param
-                    elif param > 31
-                        tempo = param
-                elif fx == 0xB
-                    jump_order = param
-                elif fx == 0xD
-                    let br = stdr.floor(param / 16) * 10 + (param % 16)
-                    if br > 63
-                        br = 0
-                    break_row = br
-            ms += row_time_ms(speed, tempo)
-            guard += 1
-            if jump_order >= 0
-                order = jump_order
-                row = 0
-            elif break_row >= 0
-                order += 1
-                row = break_row
-            else
-                row += 1
-                if row >= 64
-                    row = 0
-                    order += 1
-    <- ms
-;
-
-: time2(n = num) (( string ))
-    if n < 10
-        <- "0" + str(n)
-    <- str(n)
-;
-
-: song_duration_text() (( string ))
-    let sec = stdr.floor(song_duration_ms() / 1000)
-    let min = stdr.floor(sec / 60)
-    <- time2(min) + ":" + time2(sec % 60)
-;
-
-: parse_song(bytes = any) (( bool ))
-    if !is_mod(bytes)
-        <- false
-    song_alloc()
-    song_length = byte_at(bytes, 950)
-    if song_length <= 0 || song_length > 128
-        song_length = 1
-    song_restart = byte_at(bytes, 951)
-    if song_restart >= song_length
-        song_restart = 0
-    song_pattern_count = 1
-    for (let ?i = 0; i < MAX_ORDERS; i += 1)
-        song_orders[i] = 0
-    for (let ?i = 0; i < song_length; i += 1)
-        let p = byte_at(bytes, 952 + i)
-        song_orders[i] = p
-        if p + 1 > song_pattern_count
-            song_pattern_count = p + 1
-    if song_pattern_count > MAX_PATTERNS
-        song_pattern_count = MAX_PATTERNS
-    if 1084 + song_pattern_count * 1024 > stdr.len(bytes)
-        <- false
-    for (let ?pat = 0; pat < song_pattern_count; pat += 1)
-        for (let ?row = 0; row < 64; row += 1)
-            for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
-                let off = 1084 + pat * 1024 + row * 16 + ch * 4
-                let b0 = byte_at(bytes, off)
-                let b1 = byte_at(bytes, off + 1)
-                let b2 = byte_at(bytes, off + 2)
-                let b3 = byte_at(bytes, off + 3)
-                let k = song_cell_idx(pat, row, ch)
-                song_period[k] = (b0 % 16) * 256 + b1
-                song_inst[k] = stdr.floor(b0 / 16) * 16 + stdr.floor(b2 / 16)
-                song_fx[k] = b2 % 16
-                song_param[k] = b3
-    let ?cur_off = 1084 + song_pattern_count * 1024
-    for (let ?i = 0; i < MAX_SAMPLES; i += 1)
-        sample_volume[i] = 0
-        sample_wave[i] = vimana.wave_pulse
-        sample_finetune[i] = 0
-        sample_loop[i] = 0
-        sample_data_off[i] = 0
-        sample_length[i] = 0
-        sample_loop_start[i] = 0
-        sample_loop_len[i] = 0
-        sample_name[i] = ""
-        sample_bytes[i] = []: [any]
-    for (let ?si = 0; si < 31; si += 1)
-        let so = 20 + si * 30
-        let len_words = byte_at(bytes, so + 22) * 256 + byte_at(bytes, so + 23)
-        let length = len_words * 2
-        let ft_raw = byte_at(bytes, so + 24) % 16
-        let ?ft = ft_raw
-        if ft >= 8
-            ft = ft - 16
-        let vol = byte_at(bytes, so + 25)
-        let rep_start_words = byte_at(bytes, so + 26) * 256 + byte_at(bytes, so + 27)
-        let rep_len_words = byte_at(bytes, so + 28) * 256 + byte_at(bytes, so + 29)
-        if rep_len_words < 1
-            rep_len_words = 1
-        sample_volume[si + 1] = vol
-        sample_finetune[si + 1] = ft
-        sample_data_off[si + 1] = cur_off
-        sample_length[si + 1] = length
-        sample_loop_start[si + 1] = rep_start_words * 2
-        sample_loop_len[si + 1] = rep_len_words * 2
-        sample_name[si + 1] = read_mod_text(bytes, so, 22)
-        if rep_len_words > 1 && rep_start_words > 0
-            sample_loop[si + 1] = 1
-        if length >= 16 && cur_off + length <= stdr.len(bytes)
-            sample_wave[si + 1] = classify_sample_bytes(bytes, cur_off, length)
-        cur_off = cur_off + length
-    play_order = 0
-    play_row = 0
-    play_tick = 0
-    play_speed = 6
-    play_tempo = 125
-    play_break_row = -1
-    play_jump_order = -1
-    bpm = 125
-    for (let ?ch = 0; ch < TRACKS; ch += 1)
-        ch_period[ch] = 0
-        ch_volume[ch] = 0
-        ch_sample[ch] = 0
-        ch_vslide_up[ch] = 0
-        ch_vslide_down[ch] = 0
-        ch_pslide_up[ch] = 0
-        ch_pslide_down[ch] = 0
-        ch_arp_x[ch] = 0
-        ch_arp_y[ch] = 0
-        ch_porta_target[ch] = 0
-        ch_porta_speed[ch] = 0
-        ch_vibrato_pos[ch] = 0
-        ch_vibrato_speed[ch] = 0
-        ch_vibrato_depth[ch] = 0
-        ch_tremolo_pos[ch] = 0
-        ch_tremolo_speed[ch] = 0
-        ch_tremolo_depth[ch] = 0
-        ch_note_cut[ch] = -1
-        ch_retrigger[ch] = 0
-    song_loaded = true
-    song_duration_label = song_duration_text()
-    <- true
-;
-
-: song_process_row(sys = vimana.system) (( -- ))
-    let pat = song_orders[play_order]
-    for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
-        let k = song_cell_idx(pat, play_row, ch)
-        let period = song_period[k]
-        let inst = song_inst[k]
-        let fx = song_fx[k]
-        let param = song_param[k]
-
-        ch_vslide_up[ch] = 0
-        ch_vslide_down[ch] = 0
-        ch_pslide_up[ch] = 0
-        ch_pslide_down[ch] = 0
-        ch_arp_x[ch] = 0
-        ch_arp_y[ch] = 0
-        ch_note_cut[ch] = -1
-        ch_retrigger[ch] = 0
-
-        let ?retrigger = false
-
-        if inst > 0 && inst < MAX_SAMPLES
-            ch_sample[ch] = inst
-            ch_volume[ch] = sample_volume[inst]
-
-        if period > 0 && fx != 3 && fx != 5
-            ch_period[ch] = period
-            retrigger = true
-        elif period > 0
-            ch_porta_target[ch] = period
-
-        if fx == 0 && param > 0
-            ch_arp_x[ch] = stdr.floor(param / 16)
-            ch_arp_y[ch] = param % 16
-        elif fx == 3
-            if param > 0
-                ch_porta_speed[ch] = param
-        elif fx == 4
-            let vs = stdr.floor(param / 16)
-            let vd = param % 16
-            if vs > 0
-                ch_vibrato_speed[ch] = vs
-            if vd > 0
-                ch_vibrato_depth[ch] = vd
-        elif fx == 5
-            if param >= 16
-                ch_vslide_up[ch] = stdr.floor(param / 16)
-            else
-                ch_vslide_down[ch] = param % 16
-        elif fx == 6
-            if param >= 16
-                ch_vslide_up[ch] = stdr.floor(param / 16)
-            else
-                ch_vslide_down[ch] = param % 16
-        elif fx == 7
-            let ts = stdr.floor(param / 16)
-            let td = param % 16
-            if ts > 0
-                ch_tremolo_speed[ch] = ts
-            if td > 0
-                ch_tremolo_depth[ch] = td
-        elif fx == 0xA
-            if param >= 16
-                ch_vslide_up[ch] = stdr.floor(param / 16)
-            else
-                ch_vslide_down[ch] = param % 16
-        elif fx == 1
-            ch_pslide_up[ch] = param
-        elif fx == 2
-            ch_pslide_down[ch] = param
-        elif fx == 0xC
-            let ?nv = param
-            if nv > 64
-                nv = 64
-            if nv < 0
-                nv = 0
-            ch_volume[ch] = nv
-        elif fx == 0xB
-            play_jump_order = param
-        elif fx == 0xD
-            let ?br = stdr.floor(param / 16) * 10 + (param % 16)
-            if br > 63
-                br = 0
-            play_break_row = br
-        elif fx == 0xE
-            let sub = stdr.floor(param / 16)
-            let val = param % 16
-            if sub == 1
-                ch_period[ch] = ch_period[ch] - val
-                if ch_period[ch] < 56
-                    ch_period[ch] = 56
-            elif sub == 2
-                ch_period[ch] = ch_period[ch] + val
-                if ch_period[ch] > 1712
-                    ch_period[ch] = 1712
-            elif sub == 0xA
-                ch_volume[ch] = ch_volume[ch] + val
-                if ch_volume[ch] > 64
-                    ch_volume[ch] = 64
-            elif sub == 0xB
-                ch_volume[ch] = ch_volume[ch] - val
-                if ch_volume[ch] < 0
-                    ch_volume[ch] = 0
-            elif sub == 0xC
-                ch_note_cut[ch] = val
-            elif sub == 9
-                ch_retrigger[ch] = val
-        elif fx == 0xF
-            if param > 0 && param <= 31
-                play_speed = param
-            elif param > 31
-                play_tempo = param
-                bpm = param
-
-        if retrigger
-            let smp = ch_sample[ch]
-            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
-                sys.play_sample(ch, smp, ch_period[ch], ch_volume[ch])
-            else
-                let ?wave = vimana.wave_pulse
-                if smp >= 1 && smp < MAX_SAMPLES
-                    wave = sample_wave[smp]
-                sys.set_voice(ch, wave)
-                sys.play_voice(ch, 60, vol_mod_to_vim(ch_volume[ch]))
-                sys.set_frequency(ch, period_to_freq16(ch_period[ch]))
-        else
-            let smp = ch_sample[ch]
-            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
-                sys.set_voice_volume(ch, ch_volume[ch])
-            else
-                sys.set_voice_volume(ch, vol_mod_to_vim(ch_volume[ch]))
-        apply_channel_period(sys, ch, ch_period[ch])
-;
-
-: song_apply_continuous(sys = vimana.system) (( -- ))
-    for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
-        let ?changed_vol = false
-        let ?changed_period = false
-        if ch_vslide_up[ch] > 0
-            let ?nv = ch_volume[ch] + ch_vslide_up[ch]
-            if nv > 64
-                nv = 64
-            ch_volume[ch] = nv
-            changed_vol = true
-        elif ch_vslide_down[ch] > 0
-            let ?nv = ch_volume[ch] - ch_vslide_down[ch]
-            if nv < 0
-                nv = 0
-            ch_volume[ch] = nv
-            changed_vol = true
-        if ch_pslide_up[ch] > 0
-            let ?np = ch_period[ch] - ch_pslide_up[ch]
-            if np < 56
-                np = 56
-            ch_period[ch] = np
-            changed_period = true
-        elif ch_pslide_down[ch] > 0
-            let ?np = ch_period[ch] + ch_pslide_down[ch]
-            if np > 1712
-                np = 1712
-            ch_period[ch] = np
-            changed_period = true
-        elif ch_porta_target[ch] > 0 && ch_porta_speed[ch] > 0
-            if ch_period[ch] < ch_porta_target[ch]
-                let ?np = ch_period[ch] + ch_porta_speed[ch]
-                if np > ch_porta_target[ch]
-                    np = ch_porta_target[ch]
-                ch_period[ch] = np
-                changed_period = true
-            elif ch_period[ch] > ch_porta_target[ch]
-                let ?np = ch_period[ch] - ch_porta_speed[ch]
-                if np < ch_porta_target[ch]
-                    np = ch_porta_target[ch]
-                ch_period[ch] = np
-                changed_period = true
-        let ?out_period = ch_period[ch]
-        if ch_arp_x[ch] > 0 || ch_arp_y[ch] > 0
-            let arp_pos = play_tick % 3
-            if arp_pos == 1
-                out_period = period_shift(ch_period[ch], ch_arp_x[ch])
-            elif arp_pos == 2
-                out_period = period_shift(ch_period[ch], ch_arp_y[ch])
-            changed_period = true
-        if ch_vibrato_depth[ch] > 0 && ch_vibrato_speed[ch] > 0
-            ch_vibrato_pos[ch] = ch_vibrato_pos[ch] + ch_vibrato_speed[ch]
-            out_period = ch_period[ch] + vibrato_delta(ch_vibrato_pos[ch], ch_vibrato_depth[ch])
-            if out_period < 56
-                out_period = 56
-            if out_period > 1712
-                out_period = 1712
-            changed_period = true
-        if changed_vol
-            let smp = ch_sample[ch]
-            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
-                sys.set_voice_volume(ch, ch_volume[ch])
-            else
-                sys.set_voice_volume(ch, vol_mod_to_vim(ch_volume[ch]))
-        if ch_tremolo_depth[ch] > 0 && ch_tremolo_speed[ch] > 0
-            ch_tremolo_pos[ch] = ch_tremolo_pos[ch] + ch_tremolo_speed[ch]
-            let ?tv = ch_volume[ch] + vibrato_delta(ch_tremolo_pos[ch], ch_tremolo_depth[ch])
-            if tv < 0
-                tv = 0
-            if tv > 64
-                tv = 64
-            let smp = ch_sample[ch]
-            if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
-                sys.set_voice_volume(ch, tv)
-            else
-                sys.set_voice_volume(ch, vol_mod_to_vim(tv))
-        if ch_note_cut[ch] >= 0 && play_tick >= ch_note_cut[ch]
-            sys.stop_voice(ch)
-        elif ch_retrigger[ch] > 0
-            if play_tick > 0
-                if play_tick % ch_retrigger[ch] == 0
-                    let smp = ch_sample[ch]
-                    if smp >= 1 && smp < MAX_SAMPLES && sample_length[smp] > 0
-                        sys.play_sample(ch, smp, ch_period[ch], ch_volume[ch])
-        if changed_period
-            apply_channel_period(sys, ch, out_period)
-;
-
-: song_advance_row() (( -- ))
-    let ?next_row = play_row + 1
-    let ?next_order = play_order
-    let ?row_set = false
-    if play_break_row >= 0
-        next_row = play_break_row
-        play_break_row = -1
-        row_set = true
-    if play_jump_order >= 0
-        next_order = play_jump_order
-        play_jump_order = -1
-        if !row_set
-            next_row = 0
-    elif row_set
-        next_order = play_order + 1
-    elif next_row >= 64
-        next_row = 0
-        next_order = play_order + 1
-    if next_order >= song_length
-        next_order = song_restart
-        if next_order >= song_length
-            next_order = 0
-    play_order = next_order
-    play_row = next_row
-;
-
-: sample_value(code = num, i = num) (( num ))
-    if code == 1
-        if i < 16
-            <- -64 + i * 8
-        <- 64 - (i - 16) * 8
-    elif code == 2
-        <- -64 + i * 4
-    elif code == 3
-        if i < 16
-            <- 64
-        <- -64
-    elif code == 4
-        let y = (i * 73 + 41)
-        <- (y % 129) - 64
-    elif i % 4 < 2
-        <- 48
-    <- -48
-;
-
-: push_sample_header(out = any, code = num) (( -- ))
-    let ?name = "vimana"
-    if code == 1
-        name = "vimana triangle"
-    elif code == 2
-        name = "vimana saw"
-    elif code == 3
-        name = "vimana pulse"
-    elif code == 4
-        name = "vimana noise"
-    elif code == 5
-        name = "vimana psg"
-    push_text_fixed(out, name, 22)
-    if code > 0 && code <= 5
-        push_be16(out, 16)
-        push_byte(out, 0)
-        push_byte(out, 64)
-        push_be16(out, 0)
-        push_be16(out, 1)
-    else
-        push_be16(out, 0)
-        push_byte(out, 0)
-        push_byte(out, 0)
-        push_be16(out, 0)
-        push_be16(out, 1)
-;
-
-: push_sample_data(out = any, code = num) (( -- ))
-    for (let ?i = 0; i < 32; i += 1)
-        push_byte(out, sample_value(code, i))
-;
-
-: push_mod_cell(out = any, step = num, ch = num) (( -- ))
-    if step >= total_steps()
-        push_byte(out, 0)
-        push_byte(out, 0)
-        push_byte(out, 0)
-        push_byte(out, 0)
-        <-
-    let k = idx(step, ch)
-    let n = notes[k]
-    let ?period = 0
-    let ?inst = 0
-    let ?effect = 0
-    let ?param = 0
-    if n == NOTE_REST
-        effect = 12
-    elif n >= 0
-        period = tracker_mod.period_for_note(n)
-        inst = tracker_mod.wave_code(waves[ch])
-        effect = 12
-        param = vols[k] * 4
-        if param > 64
-            param = 64
-    if step == 0 && ch == 0
-        effect = 15
-        param = bpm
-        if param < 32
-            param = 32
-        if param > 255
-            param = 255
-    push_byte(out, stdr.floor(inst / 16) * 16 + stdr.floor(period / 256))
-    push_byte(out, period % 256)
-    push_byte(out, (inst % 16) * 16 + effect)
-    push_byte(out, param)
-;
-
-: mod_bytes() (( [any] ))
-    let ?out = []: [any]
-    let patterns = mod_pattern_count()
-    push_text_fixed(out, tracker_mod_title(), 20)
-    for (let ?smp = 1; smp <= 31; smp += 1)
-        push_sample_header(out, smp)
-    push_byte(out, patterns)
-    push_byte(out, 0)
-    for (let ?i = 0; i < 128; i += 1)
-        if i < patterns
-            push_byte(out, i)
-        else
-            push_byte(out, 0)
-    push_text_fixed(out, "M.K.", 4)
-    for (let ?pat = 0; pat < patterns; pat += 1)
-        for (let ?row = 0; row < 64; row += 1)
-            for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
-                push_mod_cell(out, pat * 64 + row, ch)
-    for (let ?code = 1; code <= 5; code += 1)
-        push_sample_data(out, code)
-    <- out
-;
-
-: byte_at(bytes = any, pos = num) (( num ))
-    <- stdr.floor(stdr.num(bytes[pos] ?? 0)) % 256
-;
-
-: byte_slice(bytes = any, off = num, length = num) (( [any] ))
-    let ?out = []: [any]
-    for (let ?i = 0; i < length; i += 1)
-        stdr.push(out, byte_at(bytes, off + i))
-    <- out
-;
-
-: upload_mod_samples(sys = vimana.system, bytes = any) (( -- ))
-    for (let ?smp = 1; smp < MAX_SAMPLES; smp += 1)
-        let len = sample_length[smp]
-        let off = sample_data_off[smp]
-        if len > 0 && off + len <= stdr.len(bytes)
-            let loop_start = sample_loop_start[smp]
-            let loop_len = sample_loop_len[smp]
-            if loop_len <= 2 || loop_start + loop_len > len
-                loop_start = 0
-                loop_len = 0
-            let slice = byte_slice(bytes, off, len)
-            sample_bytes[smp] = slice
-            sys.set_sample(smp, slice, loop_start, loop_len)
-        else
-            sample_bytes[smp] = []: [any]
-    sample_peaks_for = -1
-;
-
-: is_mod(bytes = any) (( bool ))
-    if stdr.len(bytes) < 1084
-        <- false
-    let a = byte_at(bytes, 1080)
-    let b = byte_at(bytes, 1081)
-    let c = byte_at(bytes, 1082)
-    let d = byte_at(bytes, 1083)
-    if a == 77 && b == 46 && c == 75 && d == 46
-        <- true
-    if a == 77 && b == 33 && c == 75 && d == 33
-        <- true
-    if a == 52 && b == 67 && c == 72 && d == 78
-        <- true
-    <- false
-;
-
-: load_mod_bytes(bytes = any) (( bool ))
-    if !parse_song(bytes)
-        <- false
-    ensure_editor_arrays()
-    -- Mirror the song into the editor grid for visual reference. Playback
-    -- of a loaded song uses the song structure directly, so the grid
-    -- snapshot is only for the user to scrub through the music.
-    for (let ?i = 0; i < total_steps() * TRACKS; i += 1)
-        notes[i] = NOTE_HOLD
-        vols[i] = 0
-    let ?step = 0
-    for (let ?op = 0; op < song_length; op += 1)
-        if step < total_steps()
-            let pat = song_orders[op]
-            for (let ?row = 0; row < 64; row += 1)
-                if step < total_steps()
-                    for (let ?ch = 0; ch < MOD_CHANNELS; ch += 1)
-                        let k = song_cell_idx(pat, row, ch)
-                        let period = song_period[k]
-                        let inst = song_inst[k]
-                        let fx = song_fx[k]
-                        let param = song_param[k]
-                        let gk = idx(step, ch)
-                        if period > 0
-                            notes[gk] = tracker_mod.nearest_note(period)
-                            let ?gv = 12
-                            if inst > 0 && inst < MAX_SAMPLES
-                                gv = vol_mod_to_vim(sample_volume[inst])
-                                waves[ch] = sample_wave[inst]
-                            if fx == 0xC
-                                gv = vol_mod_to_vim(param)
-                            vols[gk] = gv
-                        elif fx == 0xC && param == 0
-                            notes[gk] = NOTE_REST
-                            vols[gk] = 0
-                    step += 1
-    bpm = play_tempo
-    cursor_step = 0
-    cursor_track = 0
-    play_step = 0
-    page = 0
-    dirty = true
-    <- true
-;
-
-: new_file(sys = vimana.system) (( -- ))
-    playing = false
-    play_paused = false
-    stop_all(sys)
-    song_loaded = false
-    song_duration_label = "00:00"
-    file_path = ""
-    tracker_filename = "tracker.mod"
-    editing_filename = false
-    cursor_step = 0
-    cursor_track = 0
-    page = 0
-    play_step = 0
-    bpm = 128
-    view_mode = 0
-    sample_view_index = 1
-    sample_peaks_for = -1
-    for (let ?i = 0; i < stdr.len(sample_bytes); i += 1)
-        sample_bytes[i] = []: [any]
-    let n = stdr.len(notes)
-    for (let ?i = 0; i < n; i += 1)
-        notes[i] = NOTE_HOLD
-        vols[i] = 0
-    waves[0] = vimana.wave_pulse
-    waves[1] = vimana.wave_pulse
-    waves[2] = vimana.wave_pulse
-    waves[3] = vimana.wave_pulse
-    set_extra_channel_waves()
-    setup_audio(sys)
-    dirty = true
-;
-
-: save_file_as(fsys = vimana.file) (( -- ))
-    let picked = stdr.save_file_dialog("Save Track", "tracker.mod", "mod")
-    if is_null(picked)
-        <-
-    let path = str(picked)
-    if stdr.len(path) == 0
-        <-
-    set_tracker_path(path)
-    fsys.write_bytes(path, mod_bytes())
-    dirty = true
-;
-
-: save_file(fsys = vimana.file) (( -- ))
-    if stdr.len(file_path) == 0
-        apply_tracker_filename()
-    fsys.write_bytes(file_path, mod_bytes())
-    dirty = true
-;
-
-: open_file(fsys = vimana.file, sys = vimana.system) (( -- ))
-    let picked = stdr.open_file_dialog("Open Track", "mod")
-    if is_null(picked)
-        <-
-    let path = str(picked)
-    if stdr.len(path) == 0
-        <-
-    load_mod_path(fsys, sys, path)
-;
-
-: load_mod_path(fsys = vimana.file, sys = vimana.system, path = string) (( bool ))
-    if stdr.len(path) == 0 || !fsys.exists(path)
-        <- false
-    let bytes = fsys.read_bytes(path)
-    if !load_mod_bytes(bytes)
-        <- false
-    upload_mod_samples(sys, bytes)
-    set_tracker_path(path)
-    playing = false
-    play_paused = false
-    setup_audio(sys)
-    stop_all(sys)
-    dirty = true
-    <- true
-;
-
-def ICN_NEW  = [0x007f, 0x4141, 0x4142, 0x457a]
-def ICN_OPEN = [0x007f, 0x556b, 0x556a, 0x557a]
-def ICN_SAVE = [0x0008, 0x2a14, 0x6314, 0x2a08]
-def ICN_PREV = [0x0008, 0x1838, 0x7838, 0x1808]
-def ICN_NEXT = [0x0010, 0x181c, 0x1e1c, 0x1810]
-def TRANSPORT_Y = 28
-def TRANSPORT_BTN_H = FONT_H
-def TRANSPORT_PLAY_W = 56
-def TRANSPORT_STOP_W = 48
-def FILE_BTN_Y = 48
-def FILE_BTN_SIZE = 20
-def FILE_BTN_PAD = 2
-def FILE_BTN_NEW_X = SCREEN_W - 92
-def FILE_BTN_OPEN_X = SCREEN_W - 64
-def FILE_BTN_SAVE_X = SCREEN_W - 36
-def TRANSPORT_STOP_X = FILE_BTN_SAVE_X + FILE_BTN_SIZE - TRANSPORT_STOP_W
-def TRANSPORT_PLAY_X = TRANSPORT_STOP_X - 8 - TRANSPORT_PLAY_W
-
-def VIEW_BTN_LABEL_GRID = "GRID"
-def VIEW_BTN_LABEL_SAMPLE = "SMPL"
-def VIEW_BTN_Y = 91
-def VIEW_BTN_H = FONT_H + 4
-def VIEW_BTN_W = 44
-def VIEW_BTN_GRID_X = 16
-def VIEW_BTN_SAMPLE_X = 64
-
-def SAMPLE_NAV_Y = 148
-def SAMPLE_NAV_SIZE = 16
-def SAMPLE_PREV_X = GRID_X
-def SAMPLE_NEXT_X = GRID_X + 24
-
-def SAMPLE_TITLE_Y = 148
-def SAMPLE_FIELDS_Y = 165
-def SAMPLE_ACTIONS_Y = 186
-def SAMPLE_WAVE_Y_OFF = 60
-
-def SAMPLE_NAME_X = 252
-def SAMPLE_NAME_W = 176
-
-def SAMPLE_LOAD_X = 444
-def SAMPLE_LOAD_W = 48
-def SAMPLE_LEN_LABEL_X = 508
-
-def SF_VOL_X = GRID_X
-def SF_VOL_W = 112
-def SF_FT_X = 276
-def SF_FT_W = 112
-def SF_LPS_X = 404
-def SF_LPS_W = 120
-def SF_LPL_X = 540
-def SF_LPL_W = 120
-def SF_BTN_W = 24
-
-def SACT_CUT_X = GRID_X
-def SACT_CUT_W = 40
-def SACT_LOOP_X = 196
-def SACT_LOOP_W = 80
-def SACT_CLEAR_X = 284
-def SACT_CLEAR_W = 72
-def SACT_INFO_X = 364
-
-def ?file_btn_hover = -1
-
-: put_icn_2x(scr = vimana.screen, x = num, y = num, icon = [num], fg = num, bg = num) (( -- ))
-    for (let ?row = 0; row < 8; row += 1)
-        let word = icon[stdr.floor(row / 2)]
-        let ?byte = word % 256
-        if row % 2 == 0
-            byte = stdr.floor(word / 256) % 256
-        for (let ?col = 0; col < 8; col += 1)
-            let ?mask = 1
-            for (let ?i = 0; i < (7 - col); i += 1)
-                mask = mask * 2
-            let bit = stdr.floor(byte / mask) % 2
-            let ?c = bg
-            if bit == 1
-                c = fg
-            tracker_draw.fill(scr, x + col * 2, y + row * 2, 2, 2, c)
-;
-
-: draw_icon_button(scr = vimana.screen, x = num, y = num, size = num, icon = [num], fg = num, bg = num, down = bool) (( -- ))
-    let ?off = 0
-    if down
-        off = 1
-        tracker_draw.button_pressed(scr, x, y, size, size, bg)
-    else
-        tracker_draw.button(scr, x, y, size, size, bg)
-    put_icn_2x(scr, x + FILE_BTN_PAD + off, y + FILE_BTN_PAD + off, icon, fg, bg)
-    if down
-        tracker_draw.button_frame_pressed(scr, x, y, size, size)
-    else
-        tracker_draw.button_frame(scr, x, y, size, size)
-;
-
-: in_file_btn(dev = vimana.device, x = num) (( bool ))
-    let mx = dev.pointer_x()
-    let my = dev.pointer_y()
-    <- mx >= x && mx < x + FILE_BTN_SIZE && my >= FILE_BTN_Y && my < FILE_BTN_Y + FILE_BTN_SIZE
-;
-
-: hovered_file_btn(dev = vimana.device) (( num ))
-    if in_file_btn(dev, FILE_BTN_NEW_X)
-        <- 0
-    if in_file_btn(dev, FILE_BTN_OPEN_X)
-        <- 1
-    if in_file_btn(dev, FILE_BTN_SAVE_X)
-        <- 2
-    <- -1
-;
-
-: draw_file_buttons(scr = vimana.screen) (( -- ))
-    let ?new_fg = 1
-    let ?open_fg = 1
-    let ?save_fg = 1
-    let ?new_bg = 0
-    let ?open_bg = 0
-    let ?save_bg = 0
-    if file_btn_hover == 0
-        new_fg = 3
-        new_bg = 2
-    if file_btn_hover == 1
-        open_fg = 3
-        open_bg = 2
-    if file_btn_hover == 2
-        save_fg = 3
-        save_bg = 2
-    let new_down = button_down && file_btn_hover == 0
-    let open_down = button_down && file_btn_hover == 1
-    let save_down = button_down && file_btn_hover == 2
-    draw_icon_button(scr, FILE_BTN_NEW_X, FILE_BTN_Y, FILE_BTN_SIZE, ICN_NEW, new_fg, new_bg, new_down)
-    draw_icon_button(scr, FILE_BTN_OPEN_X, FILE_BTN_Y, FILE_BTN_SIZE, ICN_OPEN, open_fg, open_bg, open_down)
-    draw_icon_button(scr, FILE_BTN_SAVE_X, FILE_BTN_Y, FILE_BTN_SIZE, ICN_SAVE, save_fg, save_bg, save_down)
-;
-
-: in_transport_btn(dev = vimana.device, x = num, w = num) (( bool ))
-    let mx = dev.pointer_x()
-    let my = dev.pointer_y()
-    <- mx >= x && mx < x + w && my >= TRANSPORT_Y && my < TRANSPORT_Y + TRANSPORT_BTN_H
-;
-
-: hovered_transport_btn(dev = vimana.device) (( num ))
-    if in_transport_btn(dev, TRANSPORT_PLAY_X, TRANSPORT_PLAY_W)
-        <- 0
-    if in_transport_btn(dev, TRANSPORT_STOP_X, TRANSPORT_STOP_W)
-        <- 1
-    <- -1
-;
-
-: draw_transport_buttons(scr = vimana.screen) (( -- ))
-    let ?play_fg = 1
-    let ?play_bg = 0
-    let ?stop_fg = 1
-    let ?stop_bg = 0
-    if transport_btn_hover == 0
-        play_fg = 3
-        play_bg = 2
-    if transport_btn_hover == 1
-        stop_fg = 3
-        stop_bg = 2
-    let ?play_label = "PLAY"
-    if playing
-        play_label = "PAUSE"
-    draw_text_button(scr, TRANSPORT_PLAY_X, TRANSPORT_Y, TRANSPORT_PLAY_W, TRANSPORT_BTN_H, play_label, play_fg, play_bg, button_down && transport_btn_hover == 0)
-    draw_text_button(scr, TRANSPORT_STOP_X, TRANSPORT_Y, TRANSPORT_STOP_W, TRANSPORT_BTN_H, "STOP", stop_fg, stop_bg, button_down && transport_btn_hover == 1)
-;
-
-: in_view_btn(dev = vimana.device, x = num) (( bool ))
-    let mx = dev.pointer_x()
-    let my = dev.pointer_y()
-    <- mx >= x && mx < x + VIEW_BTN_W && my >= VIEW_BTN_Y && my < VIEW_BTN_Y + VIEW_BTN_H
-;
-
-: hovered_view_btn(dev = vimana.device) (( num ))
-    if in_view_btn(dev, VIEW_BTN_GRID_X)
-        <- 0
-    if in_view_btn(dev, VIEW_BTN_SAMPLE_X)
-        <- 1
-    <- -1
-;
-
-: draw_view_mode_buttons(scr = vimana.screen) (( -- ))
-    let ?grid_fg = 1
-    let ?grid_bg = 0
-    let ?sample_fg = 1
-    let ?sample_bg = 0
-    if view_mode == 0
-        grid_fg = 0
-        grid_bg = 3
-    if view_mode == 1
-        sample_fg = 0
-        sample_bg = 3
-    if view_btn_hover == 0 && view_mode != 0
-        grid_fg = 3
-    if view_btn_hover == 1 && view_mode != 1
-        sample_fg = 3
-    let grid_down = button_down && view_btn_hover == 0
-    let sample_down = button_down && view_btn_hover == 1
-    draw_text_button(scr, VIEW_BTN_GRID_X, VIEW_BTN_Y, VIEW_BTN_W, VIEW_BTN_H, VIEW_BTN_LABEL_GRID, grid_fg, grid_bg, grid_down)
-    draw_text_button(scr, VIEW_BTN_SAMPLE_X, VIEW_BTN_Y, VIEW_BTN_W, VIEW_BTN_H, VIEW_BTN_LABEL_SAMPLE, sample_fg, sample_bg, sample_down)
-;
-
-: in_sample_nav(dev = vimana.device, x = num) (( bool ))
-    let mx = dev.pointer_x()
-    let my = dev.pointer_y()
-    <- mx >= x && mx < x + SAMPLE_NAV_SIZE && my >= SAMPLE_NAV_Y && my < SAMPLE_NAV_Y + SAMPLE_NAV_SIZE
-;
-
-: hovered_sample_nav(dev = vimana.device) (( num ))
-    if in_sample_nav(dev, SAMPLE_PREV_X)
-        <- 0
-    if in_sample_nav(dev, SAMPLE_NEXT_X)
-        <- 1
-    <- -1
-;
-
-: clamp_sample_view() (( -- ))
-    if sample_view_index < 1
-        sample_view_index = MAX_SAMPLES - 1
-    if sample_view_index >= MAX_SAMPLES
-        sample_view_index = 1
-;
-
-: sample_signed_byte(slice = any, i = num) (( num ))
-    let b = byte_at(slice, i)
-    if b > 127
-        <- b - 256
-    <- b
-;
-
-: invalidate_sample_peaks() (( -- ))
-    sample_peaks_for = -1
-;
-
-: in_rect(dev = vimana.device, x = num, y = num, w = num, h = num) (( bool ))
-    let mx = dev.pointer_x()
-    let my = dev.pointer_y()
-    <- mx >= x && mx < x + w && my >= y && my < y + h
-;
-
-: in_sample_load_btn(dev = vimana.device) (( bool ))
-    <- in_rect(dev, SAMPLE_LOAD_X, SAMPLE_TITLE_Y, SAMPLE_LOAD_W, FONT_H)
-;
-
-: hovered_sample_field(dev = vimana.device) (( num ))
-    if in_rect(dev, SAMPLE_NAME_X, SAMPLE_TITLE_Y, SAMPLE_NAME_W, FONT_H)
-        <- 0
-    if !in_rect(dev, GRID_X - 8, SAMPLE_FIELDS_Y, TRACKS * cell_w(), FONT_H)
-        <- -1
-    if in_rect(dev, SF_VOL_X, SAMPLE_FIELDS_Y, SF_VOL_W, FONT_H)
-        <- 1
-    if in_rect(dev, SF_FT_X, SAMPLE_FIELDS_Y, SF_FT_W, FONT_H)
-        <- 2
-    if in_rect(dev, SF_LPS_X, SAMPLE_FIELDS_Y, SF_LPS_W, FONT_H)
-        <- 3
-    if in_rect(dev, SF_LPL_X, SAMPLE_FIELDS_Y, SF_LPL_W, FONT_H)
-        <- 4
-    <- -1
-;
-
-: hovered_sample_field_btn(dev = vimana.device) (( num ))
-    if !in_rect(dev, GRID_X - 8, SAMPLE_FIELDS_Y, TRACKS * cell_w(), FONT_H)
-        <- -1
-    if in_rect(dev, SF_VOL_X, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 0
-    if in_rect(dev, SF_VOL_X + SF_VOL_W - SF_BTN_W, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 1
-    if in_rect(dev, SF_FT_X, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 2
-    if in_rect(dev, SF_FT_X + SF_FT_W - SF_BTN_W, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 3
-    if in_rect(dev, SF_LPS_X, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 4
-    if in_rect(dev, SF_LPS_X + SF_LPS_W - SF_BTN_W, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 5
-    if in_rect(dev, SF_LPL_X, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 6
-    if in_rect(dev, SF_LPL_X + SF_LPL_W - SF_BTN_W, SAMPLE_FIELDS_Y, SF_BTN_W, FONT_H)
-        <- 7
-    <- -1
-;
-
-: hovered_sample_action(dev = vimana.device) (( num ))
-    if in_rect(dev, SACT_CUT_X, SAMPLE_ACTIONS_Y, SACT_CUT_W, FONT_H)
-        <- 0
-    if in_rect(dev, SACT_LOOP_X, SAMPLE_ACTIONS_Y, SACT_LOOP_W, FONT_H)
-        <- 1
-    if in_rect(dev, SACT_CLEAR_X, SAMPLE_ACTIONS_Y, SACT_CLEAR_W, FONT_H)
-        <- 2
-    <- -1
-;
-
-: clamp_sample_volume(v = num) (( num ))
-    if v < 0
-        <- 0
-    if v > 64
-        <- 64
-    <- v
-;
-
-: clamp_sample_finetune(v = num) (( num ))
-    if v < -8
-        <- -8
-    if v > 7
-        <- 7
-    <- v
-;
-
-: clamp_loop_value(v = num, max_v = num) (( num ))
-    if v < 0
-        <- 0
-    if v > max_v
-        <- max_v
-    <- v
-;
-
-: even_floor(v = num) (( num ))
-    if v < 0
-        v = 0
-    <- stdr.floor(v / 2) * 2
-;
-
-: reupload_sample(sys = vimana.system, i = num) (( -- ))
-    if i <= 0 || i >= MAX_SAMPLES
-        <-
-    let arr = sample_bytes[i]
-    let n = stdr.len(arr)
-    if n == 0
-        <-
-    let ?ls = sample_loop_start[i]
-    let ?ll = sample_loop_len[i]
-    if ll <= 2 || ls + ll > n
-        ls = 0
-        ll = 0
-    sys.set_sample(i, arr, ls, ll)
-;
-
-: adjust_sample_field(sys = vimana.system, field = num, delta = num) (( -- ))
-    let i = sample_view_index
-    if i <= 0 || i >= MAX_SAMPLES
-        <-
-    if field == 1
-        sample_volume[i] = clamp_sample_volume(sample_volume[i] + delta)
-        dirty = true
-        <-
-    if field == 2
-        sample_finetune[i] = clamp_sample_finetune(sample_finetune[i] + delta)
-        dirty = true
-        <-
-    let len = sample_length[i]
-    if field == 3
-        let ?max_start = len - 2
-        if max_start < 0
-            max_start = 0
-        sample_loop_start[i] = even_floor(clamp_loop_value(sample_loop_start[i] + delta * 2, max_start))
-        if sample_loop_start[i] + sample_loop_len[i] > len
-            let ?nl = len - sample_loop_start[i]
-            if nl < 0
-                nl = 0
-            sample_loop_len[i] = even_floor(nl)
-        if sample_loop_len[i] > 2
-            sample_loop[i] = 1
-        else
-            sample_loop[i] = 0
-        reupload_sample(sys, i)
-        dirty = true
-        <-
-    if field == 4
-        let ?max_len = len - sample_loop_start[i]
-        if max_len < 0
-            max_len = 0
-        sample_loop_len[i] = even_floor(clamp_loop_value(sample_loop_len[i] + delta * 2, max_len))
-        if sample_loop_len[i] > 2
-            sample_loop[i] = 1
-        else
-            sample_loop[i] = 0
-        reupload_sample(sys, i)
-        dirty = true
-        <-
-;
-
-: handle_sample_field_btn(sys = vimana.system, btn = num) (( -- ))
-    let ?delta = 1
-    if btn % 2 == 0
-        delta = -1
-    let field = stdr.floor(btn / 2) + 1
-    adjust_sample_field(sys, field, delta)
-;
-
-: finish_sample_name_edit() (( -- ))
-    editing_sample_name = false
-    dirty = true
-;
-
-: edit_sample_name_text(txt = string) (( -- ))
-    let i = sample_view_index
-    if i <= 0 || i >= MAX_SAMPLES
-        <-
-    for (let ?j = 0; j < stdr.len(txt); j += 1)
-        if stdr.len(sample_name[i]) < 22
-            sample_name[i] = sample_name[i] + stdr.char_at(txt, j)
-    dirty = true
-;
-
-: backspace_sample_name() (( -- ))
-    let i = sample_view_index
-    if i <= 0 || i >= MAX_SAMPLES
-        <-
-    let n = stdr.len(sample_name[i])
-    if n > 0
-        sample_name[i] = stdr.slice(sample_name[i], 0, n - 1)
-    dirty = true
-;
-
-: parse_wav_bytes(bytes = any) (( [any] ))
-    let n = stdr.len(bytes)
-    let ?out = []: [any]
-    if n < 44
-        <- out
-    let ?fmt_off = -1
-    let ?fmt_size = 0
-    let ?data_off = -1
-    let ?data_size = 0
-    let ?off = 12
-    for (let ?step = 0; step < 64; step += 1)
-        if off + 8 > n
-            step = 64
-        else
-            let c0 = byte_at(bytes, off)
-            let c1 = byte_at(bytes, off + 1)
-            let c2 = byte_at(bytes, off + 2)
-            let c3 = byte_at(bytes, off + 3)
-            let csize = byte_at(bytes, off + 4) + byte_at(bytes, off + 5) * 256 + byte_at(bytes, off + 6) * 65536 + byte_at(bytes, off + 7) * 16777216
-            if c0 == 102 && c1 == 109 && c2 == 116 && c3 == 32
-                fmt_off = off + 8
-                fmt_size = csize
-            elif c0 == 100 && c1 == 97 && c2 == 116 && c3 == 97
-                data_off = off + 8
-                data_size = csize
-                step = 64
-            off = off + 8 + csize
-            if csize % 2 == 1
-                off = off + 1
-            if off >= n
-                step = 64
-    if fmt_off < 0 || data_off < 0
-        <- out
-    if fmt_size < 16
-        <- out
-    let format = byte_at(bytes, fmt_off) + byte_at(bytes, fmt_off + 1) * 256
-    let channels = byte_at(bytes, fmt_off + 2) + byte_at(bytes, fmt_off + 3) * 256
-    let bits = byte_at(bytes, fmt_off + 14) + byte_at(bytes, fmt_off + 15) * 256
-    if format != 1
-        <- out
-    if channels < 1 || bits < 8
-        <- out
-    let bytes_per_sample = stdr.floor(bits / 8)
-    let block = bytes_per_sample * channels
-    if block <= 0
-        <- out
-    let ?frames = stdr.floor(data_size / block)
-    if data_off + frames * block > n
-        frames = stdr.floor((n - data_off) / block)
-    if frames < 0
-        frames = 0
-    if frames > 65534
-        frames = 65534
-    for (let ?i = 0; i < frames; i += 1)
-        let frame_off = data_off + i * block
-        let ?s = 0
-        if bits == 8
-            s = byte_at(bytes, frame_off) - 128
-        elif bits == 16
-            let lo = byte_at(bytes, frame_off)
-            let hi = byte_at(bytes, frame_off + 1)
-            let ?v = lo + hi * 256
-            if v >= 32768
-                v = v - 65536
-            s = stdr.floor(v / 256)
-        elif bits == 24
-            let hi = byte_at(bytes, frame_off + 2)
-            let ?v = hi
-            if v >= 128
-                v = v - 256
-            s = v
-        else
-            s = 0
-        if s < -128
-            s = -128
-        if s > 127
-            s = 127
-        if s < 0
-            s = s + 256
-        stdr.push(out, s)
-    <- out
-;
-
-: parse_sample_bytes(bytes = any) (( [any] ))
-    let n = stdr.len(bytes)
-    if n < 4
-        <- []: [any]
-    let b0 = byte_at(bytes, 0)
-    let b1 = byte_at(bytes, 1)
-    let b2 = byte_at(bytes, 2)
-    let b3 = byte_at(bytes, 3)
-    if b0 == 82 && b1 == 73 && b2 == 70 && b3 == 70
-        <- parse_wav_bytes(bytes)
-    let ?cap = n
-    if cap > 65534
-        cap = 65534
-    if cap % 2 == 1
-        cap -= 1
-    <- byte_slice(bytes, 0, cap)
-;
-
-: sample_name_from_path(path = string) (( string ))
-    let ?last = -1
-    for (let ?i = 0; i < stdr.len(path); i += 1)
-        let c = stdr.char_at(path, i)
-        if c == "/" || c == "\\"
-            last = i
-    let ?name = path
-    if last >= 0
-        name = stdr.slice(path, last + 1, stdr.len(path))
-    if stdr.ends_with(name, ".wav") || stdr.ends_with(name, ".WAV")
-        name = stdr.slice(name, 0, stdr.len(name) - 4)
-    if stdr.ends_with(name, ".raw") || stdr.ends_with(name, ".RAW")
-        name = stdr.slice(name, 0, stdr.len(name) - 4)
-    if stdr.len(name) > 22
-        name = stdr.slice(name, 0, 22)
-    <- name
-;
-
-: load_sample_file(fsys = vimana.file, sys = vimana.system) (( -- ))
-    let picked = stdr.open_file_dialog("Load Sample", "*")
-    if is_null(picked)
-        <-
-    let path = str(picked)
-    if stdr.len(path) == 0
-        <-
-    if !fsys.exists(path)
-        <-
-    let bytes = fsys.read_bytes(path)
-    let slice = parse_sample_bytes(bytes)
-    let len = stdr.len(slice)
-    if len <= 0
-        <-
-    let i = sample_view_index
-    if i <= 0 || i >= MAX_SAMPLES
-        <-
-    sample_bytes[i] = slice
-    sample_length[i] = len
-    sample_loop[i] = 0
-    sample_loop_start[i] = 0
-    sample_loop_len[i] = 0
-    if sample_volume[i] == 0
-        sample_volume[i] = 64
-    sample_name[i] = sample_name_from_path(path)
-    sample_data_off[i] = 0
-    if !song_loaded
-        song_loaded = true
-        song_pattern_count = 1
-        if song_length < 1
-            song_length = 1
-    invalidate_sample_peaks()
-    reupload_sample(sys, i)
-    clear_sample_selection()
-    dirty = true
-;
-
-: clear_sample_selection() (( -- ))
-    sample_sel_start = -1
-    sample_sel_end = -1
-    sample_dragging = false
-    dirty = true
-;
-
-: sample_byte_at_x(px = num) (( num ))
-    let arr = sample_bytes[sample_view_index]
-    let n = stdr.len(arr)
-    if n <= 0 || sample_wave_geom_w <= 0
-        <- 0
-    let inner_x0 = sample_wave_geom_x0 + 2
-    let ?rel = px - inner_x0
-    if rel < 0
-        rel = 0
-    let inner_w = sample_wave_geom_w - 4
-    if inner_w < 1
-        inner_w = 1
-    if rel > inner_w
-        rel = inner_w
-    let ?b = stdr.floor((rel * n) / inner_w)
-    if b < 0
-        b = 0
-    if b > n
-        b = n
-    <- b
-;
-
-: in_sample_waveform(dev = vimana.device) (( bool ))
-    <- in_rect(dev, sample_wave_geom_x0, sample_wave_geom_y0, sample_wave_geom_w, sample_wave_geom_h)
-;
-
-: begin_sample_drag(dev = vimana.device) (( bool ))
-    if !in_sample_waveform(dev)
-        <- false
-    let arr = sample_bytes[sample_view_index]
-    if stdr.len(arr) <= 0
-        <- false
-    let b = sample_byte_at_x(dev.pointer_x())
-    sample_drag_origin = b
-    sample_sel_start = b
-    sample_sel_end = b
-    sample_dragging = true
-    dirty = true
-    <- true
-;
-
-: update_sample_drag(dev = vimana.device) (( -- ))
-    if !sample_dragging
-        <-
-    let b = sample_byte_at_x(dev.pointer_x())
-    if b < sample_drag_origin
-        sample_sel_start = b
-        sample_sel_end = sample_drag_origin
-    else
-        sample_sel_start = sample_drag_origin
-        sample_sel_end = b
-    dirty = true
-;
-
-: cut_sample_to_selection(sys = vimana.system) (( -- ))
-    if sample_sel_start < 0 || sample_sel_end <= sample_sel_start
-        <-
-    let i = sample_view_index
-    if i <= 0 || i >= MAX_SAMPLES
-        <-
-    let arr = sample_bytes[i]
-    let n = stdr.len(arr)
-    if n <= 0
-        <-
-    let ?s = sample_sel_start
-    let ?e = sample_sel_end
-    if s < 0
-        s = 0
-    if e > n
-        e = n
-    s = even_floor(s)
-    e = even_floor(e)
-    if e <= s
-        <-
-    let ?out = []: [any]
-    for (let ?j = s; j < e; j += 1)
-        stdr.push(out, byte_at(arr, j))
-    sample_bytes[i] = out
-    sample_length[i] = e - s
-    if sample_loop[i] != 0
-        let ls = sample_loop_start[i]
-        let ll = sample_loop_len[i]
-        let new_ls = ls - s
-        if new_ls < 0 || ls < s || ls >= e
-            sample_loop[i] = 0
-            sample_loop_start[i] = 0
-            sample_loop_len[i] = 0
-        else
-            sample_loop_start[i] = new_ls
-            if new_ls + ll > e - s
-                sample_loop_len[i] = (e - s) - new_ls
-    invalidate_sample_peaks()
-    reupload_sample(sys, i)
-    clear_sample_selection()
-    dirty = true
-;
-
-: set_loop_from_selection(sys = vimana.system) (( -- ))
-    if sample_sel_start < 0 || sample_sel_end <= sample_sel_start
-        <-
-    let i = sample_view_index
-    if i <= 0 || i >= MAX_SAMPLES
-        <-
-    let n = sample_length[i]
-    let ?s = even_floor(sample_sel_start)
-    let ?e = even_floor(sample_sel_end)
-    if e > n
-        e = n
-    if s >= e
-        <-
-    sample_loop_start[i] = s
-    sample_loop_len[i] = e - s
-    if sample_loop_len[i] > 2
-        sample_loop[i] = 1
-    else
-        sample_loop[i] = 0
-    reupload_sample(sys, i)
-    dirty = true
-;
-
-: recompute_sample_peaks(plot_w = num) (( -- ))
-    if sample_peaks_for == sample_view_index && sample_peaks_w == plot_w
-        <-
-    let slice = sample_bytes[sample_view_index]
-    let n = stdr.len(slice)
-    let cur = stdr.len(sample_peaks_lo)
-    for (let ?i = cur; i < plot_w; i += 1)
-        stdr.push(sample_peaks_lo, 0)
-        stdr.push(sample_peaks_hi, 0)
-    if n <= 0 || plot_w <= 0
-        for (let ?px = 0; px < plot_w; px += 1)
-            sample_peaks_lo[px] = 0
-            sample_peaks_hi[px] = 0
-        sample_peaks_for = sample_view_index
-        sample_peaks_w = plot_w
-        <-
-    for (let ?px = 0; px < plot_w; px += 1)
-        let i0 = stdr.floor((px * n) / plot_w)
-        let ?i1 = stdr.floor(((px + 1) * n) / plot_w)
-        if i1 <= i0
-            i1 = i0 + 1
-        if i1 > n
-            i1 = n
-        let ?lo = 127
-        let ?hi = -128
-        for (let ?j = i0; j < i1; j += 1)
-            let v = sample_signed_byte(slice, j)
-            if v < lo
-                lo = v
-            if v > hi
-                hi = v
-        sample_peaks_lo[px] = lo
-        sample_peaks_hi[px] = hi
-    sample_peaks_for = sample_view_index
-    sample_peaks_w = plot_w
-;
-
-: draw_text_button(scr = vimana.screen, x = num, y = num, w = num, h = num, label = string, fg = num, bg = num, down = bool) (( -- ))
-    let ?tx = x + stdr.floor((w - stdr.len(label) * 9) / 2)
-    let ?ty = y
-    if tx < x + 2
-        tx = x + 2
-    if down
-        tx += 1
-        ty += 1
-        tracker_draw.button_pressed(scr, x, y, w, h, bg)
-    else
-        tracker_draw.button(scr, x, y, w, h, bg)
-    scr.put_text(tx, ty + 2, label, fg, bg)
-    if down
-        tracker_draw.button_frame_pressed(scr, x, y, w, h)
-    else
-        tracker_draw.button_frame(scr, x, y, w, h)
-;
-
-: draw_field_btn(scr = vimana.screen, x = num, y = num, w = num, label = string, hover = bool) (( -- ))
-    let ?fg = 1
-    let ?bg = 0
-    if hover
-        fg = 0
-        bg = 3
-    draw_text_button(scr, x, y, w, FONT_H, label, fg, bg, hover && button_down)
-;
-
-: draw_sample_field(scr = vimana.screen, x = num, w = num, label = string, value = string, field_id = num, dec_btn = num, inc_btn = num) (( -- ))
-    let ?bg = 0
-    if sample_field_hover == field_id && field_id != 0
-        tracker_draw.fill(scr, x, SAMPLE_FIELDS_Y, w, FONT_H, 2)
-        bg = 2
-    draw_field_btn(scr, x, SAMPLE_FIELDS_Y, SF_BTN_W, "-", sample_btn_hover == dec_btn)
-    let inner = " " + label + " " + value
-    scr.put_text(x + SF_BTN_W, SAMPLE_FIELDS_Y, inner, 1, bg)
-    draw_field_btn(scr, x + w - SF_BTN_W, SAMPLE_FIELDS_Y, SF_BTN_W, "+", sample_btn_hover == inc_btn)
-;
-
-: draw_sample_view(scr = vimana.screen) (( -- ))
-    let area_x = GRID_X
-    let area_y = GRID_Y
-    let area_w = TRACKS * cell_w() - 8
-    let area_h = VISIBLE_STEPS * row_h()
-    let i = sample_view_index
-
-    let ?nav_prev = 1
-    let ?nav_next = 1
-    if sample_nav_hover == 0
-        nav_prev = 3
-    if sample_nav_hover == 1
-        nav_next = 3
-    let prev_down = button_down && sample_nav_hover == 0
-    let next_down = button_down && sample_nav_hover == 1
-    if prev_down
-        tracker_draw.button_pressed(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
-    else
-        tracker_draw.button(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
-    put_icn_2x(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, ICN_PREV, nav_prev, 0)
-    if prev_down
-        tracker_draw.button_frame_pressed(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
-    else
-        tracker_draw.button_frame(scr, SAMPLE_PREV_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
-    if next_down
-        tracker_draw.button_pressed(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
-    else
-        tracker_draw.button(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE, 0)
-    put_icn_2x(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, ICN_NEXT, nav_next, 0)
-    if next_down
-        tracker_draw.button_frame_pressed(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
-    else
-        tracker_draw.button_frame(scr, SAMPLE_NEXT_X, SAMPLE_NAV_Y, SAMPLE_NAV_SIZE, SAMPLE_NAV_SIZE)
-
-    let slot_label = "SMP " + tracker_mod.hex2(i)
-    scr.put_text(SAMPLE_NEXT_X + SAMPLE_NAV_SIZE + 8, SAMPLE_TITLE_Y, slot_label, 3, 0)
-
-    let ?name = sample_name[i]
-    let ?name_fg = 3
-    let ?name_bg = 0
-    if editing_sample_name
-        name = name + "_"
-        name_fg = 0
-        name_bg = 3
-    elif sample_field_hover == 0
-        name_fg = 0
-        name_bg = 2
-    if stdr.len(name) == 0
-        name = "(empty)"
-    tracker_draw.fill(scr, SAMPLE_NAME_X, SAMPLE_TITLE_Y, SAMPLE_NAME_W, FONT_H, name_bg)
-    scr.put_text(SAMPLE_NAME_X, SAMPLE_TITLE_Y, name, name_fg, name_bg)
-
-    let ?load_fg = 1
-    let ?load_bg = 0
-    if sample_load_hover
-        load_fg = 0
-        load_bg = 3
-    draw_text_button(scr, SAMPLE_LOAD_X, SAMPLE_TITLE_Y, SAMPLE_LOAD_W, FONT_H, "LOAD", load_fg, load_bg, sample_load_hover && button_down)
-
-    let len = sample_length[i]
-    scr.put_text(SAMPLE_LEN_LABEL_X, SAMPLE_TITLE_Y, "LEN " + tracker_mod.hex3(len), 1, 0)
-
-    let vol_str = tracker_mod.hex2(sample_volume[i])
-    draw_sample_field(scr, SF_VOL_X, SF_VOL_W, "VOL", vol_str, 1, 0, 1)
-    let ?ft = sample_finetune[i]
-    let ?ft_str = ""
-    if ft >= 0
-        ft_str = "+" + str(ft)
-    else
-        ft_str = str(ft)
-    if stdr.len(ft_str) < 2
-        ft_str = " " + ft_str
-    draw_sample_field(scr, SF_FT_X, SF_FT_W, "FT", ft_str, 2, 2, 3)
-    let lps_str = tracker_mod.hex3(sample_loop_start[i])
-    draw_sample_field(scr, SF_LPS_X, SF_LPS_W, "LPS", lps_str, 3, 4, 5)
-    let ?lpl_str = "---"
-    if sample_loop[i] != 0
-        lpl_str = tracker_mod.hex3(sample_loop_len[i])
-    draw_sample_field(scr, SF_LPL_X, SF_LPL_W, "LPL", lpl_str, 4, 6, 7)
-
-    let cut_hover = sample_action_hover == 0
-    let loop_hover = sample_action_hover == 1
-    let clear_hover = sample_action_hover == 2
-    draw_field_btn(scr, SACT_CUT_X, SAMPLE_ACTIONS_Y, SACT_CUT_W, "CUT", cut_hover)
-    draw_field_btn(scr, SACT_LOOP_X, SAMPLE_ACTIONS_Y, SACT_LOOP_W, "SET LOOP", loop_hover)
-    draw_field_btn(scr, SACT_CLEAR_X, SAMPLE_ACTIONS_Y, SACT_CLEAR_W, "CLR SEL", clear_hover)
-    if sample_sel_start >= 0 && sample_sel_end > sample_sel_start
-        scr.put_text(SACT_INFO_X, SAMPLE_ACTIONS_Y, "SEL " + tracker_mod.hex3(sample_sel_start) + "-" + tracker_mod.hex3(sample_sel_end), 3, 0)
-    else
-        scr.put_text(SACT_INFO_X, SAMPLE_ACTIONS_Y, "SEL --", 2, 0)
-
-    let wave_x = area_x
-    let wave_y = area_y + SAMPLE_WAVE_Y_OFF
-    let wave_w = area_w
-    let wave_h = area_h - SAMPLE_WAVE_Y_OFF
-    if wave_h < 16
-        wave_h = 16
-    sample_wave_geom_x0 = wave_x
-    sample_wave_geom_y0 = wave_y
-    sample_wave_geom_w = wave_w
-    sample_wave_geom_h = wave_h
-    tracker_draw.box(scr, wave_x, wave_y, wave_w, wave_h, 2)
-    let mid = wave_y + stdr.floor(wave_h / 2)
-    tracker_draw.line(scr, wave_x + 1, mid, wave_x + wave_w - 2, mid, 2)
-    let slice = sample_bytes[i]
-    let n = stdr.len(slice)
-    if n <= 0 || len <= 0
-        scr.put_text(wave_x + 8, mid - stdr.floor(FONT_H / 2), "NO SAMPLE DATA", 2, 0)
-        <-
-    let inner_x0 = wave_x + 2
-    let inner_x1 = wave_x + wave_w - 3
-    let inner_w = inner_x1 - inner_x0
-    if inner_w < 1
-        inner_w = 1
-    if sample_sel_start >= 0 && sample_sel_end > sample_sel_start
-        let sx0 = inner_x0 + stdr.floor((sample_sel_start * inner_w) / n)
-        let sx1 = inner_x0 + stdr.floor((sample_sel_end * inner_w) / n)
-        let sw = sx1 - sx0
-        if sw < 1
-            tracker_draw.line(scr, sx0, wave_y + 1, sx0, wave_y + wave_h - 2, 3)
-        else
-            tracker_draw.fill(scr, sx0, wave_y + 1, sw, wave_h - 2, 2)
-    let ?step = stdr.floor(inner_w / 256)
-    if step < 1
-        step = 1
-    let plot_w = stdr.floor(inner_w / step)
-    if plot_w < 1
-        plot_w = 1
-    let amp = stdr.floor(wave_h / 2) - 3
-    if amp < 1
-        amp = 1
-    if sample_loop[i] != 0
-        let ls = sample_loop_start[i]
-        let ll = sample_loop_len[i]
-        if ls > 0 && ls < n
-            let lx = inner_x0 + stdr.floor((ls * inner_w) / n)
-            tracker_draw.line(scr, lx, wave_y + 1, lx, wave_y + wave_h - 2, 2)
-        if ls + ll > 0 && ls + ll <= n
-            let lx2 = inner_x0 + stdr.floor(((ls + ll) * inner_w) / n)
-            tracker_draw.line(scr, lx2, wave_y + 1, lx2, wave_y + wave_h - 2, 2)
-    recompute_sample_peaks(plot_w)
-    for (let ?px = 0; px < plot_w; px += 1)
-        let lo = sample_peaks_lo[px]
-        let hi = sample_peaks_hi[px]
-        let py_hi = mid - stdr.floor((hi * amp) / 128)
-        let py_lo = mid - stdr.floor((lo * amp) / 128)
-        let cx = inner_x0 + px * step
-        tracker_draw.fill(scr, cx, py_hi, step, py_lo - py_hi + 1, 3)
-;
-
-: draw_header(scr = vimana.screen) (( -- ))
-    let ?file_fg = 3
-    let ?file_bg = 0
-    if editing_filename
-        file_fg = 0
-        file_bg = 3
-    scr.put_text(HEADER_FILE_X, HEADER_FILE_Y, "FILE ", 1, 0)
-    scr.put_text(HEADER_FILE_X + 40, HEADER_FILE_Y, header_file_label(), file_fg, file_bg)
-    if song_loaded
-        scr.put_text(296, HEADER_FILE_Y, "SMP ", 1, 0)
-        scr.put_text(328, HEADER_FILE_Y, current_sample_name(), 3, 0)
-    if song_loaded
-        scr.put_text(16, 50, "LEN ", 1, 0)
-        scr.put_text(48, 50, tracker_mod.hex2(song_length), 3, 0)
-        scr.put_text(80, 50, "PAT ", 1, 0)
-        scr.put_text(112, 50, tracker_mod.hex2(song_pattern_count), 3, 0)
-        scr.put_text(144, 50, "RST ", 1, 0)
-        scr.put_text(176, 50, tracker_mod.hex2(song_restart), 3, 0)
-        scr.put_text(296, 50, "SPD ", 1, 0)
-        scr.put_text(328, 50, tracker_mod.hex1(play_speed), 3, 0)
-        scr.put_text(352, 50, "BPM ", 1, 0)
-        scr.put_text(384, 50, str(play_tempo), 3, 0)
-        if playing
-            scr.put_text(512, 50, "ORD ", 1, 0)
-            scr.put_text(544, 50, tracker_mod.hex2(play_order), 3, 0)
-            scr.put_text(576, 50, "ROW ", 1, 0)
-            scr.put_text(608, 50, tracker_mod.hex2(play_row), 3, 0)
-        else
-            scr.put_text(512, 50, "ORD ", 1, 0)
-            scr.put_text(544, 50, tracker_mod.hex2(play_order), 2, 0)
-            scr.put_text(576, 50, "ROW ", 1, 0)
-            scr.put_text(608, 50, tracker_mod.hex2(play_row), 2, 0)
-        scr.put_text(680, 50, "DUR ", 1, 0)
-        scr.put_text(712, 50, song_duration_label, 3, 0)
-        <-
-    scr.put_text(16, 50, "BPM ", 1, 0)
-    scr.put_text(48, 50, str(bpm), 3, 0)
-    scr.put_text(88, 50, "OCT ", 1, 0)
-    scr.put_text(120, 50, tracker_mod.hex1(octave), 3, 0)
-    scr.put_text(152, 50, "VOL ", 1, 0)
-    scr.put_text(184, 50, tracker_mod.hex1(master), 3, 0)
-    scr.put_text(216, 50, "PAG ", 1, 0)
-    scr.put_text(248, 50, tracker_mod.hex1(page + 1) + "/" + tracker_mod.hex1(PAGE_COUNT), 3, 0)
-    scr.put_text(384, 50, "FLT ", 1, 0)
-    scr.put_text(416, 50, tracker_mod.hex3(cutoff), 3, 0)
-    scr.put_text(472, 50, "RES ", 1, 0)
-    scr.put_text(504, 50, tracker_mod.hex1(resonance), 3, 0)
-    scr.put_text(536, 50, "MOD ", 1, 0)
-    scr.put_text(568, 50, tracker_mod.hex1(filter_mode), 3, 0)
-    if playing
-        scr.put_text(680, 50, ">>", 3, 0)
-    else
-        scr.put_text(680, 50, "--", 2, 0)
-;
-
-: draw_pattern_map(scr = vimana.screen) (( -- ))
-    let cols = map_cols()
-    for (let ?i = 0; i < 256; i += 1)
-        let x = MAP_X + (i % cols) * MAP_CELL_W
-        let y = MAP_Y + stdr.floor(i / cols) * MAP_CELL_H
-        let row_start = stdr.floor(i / cols) * cols
-        let ?row_has_data = false
-        if song_loaded
-            for (let ?j = 0; j < cols; j += 1)
-                let k = row_start + j
-                if k < song_length && k < MAX_ORDERS && song_orders[k] != 0
-                    row_has_data = true
-        let ?pat = 0
-        let ?col = 2
-        if song_loaded && i < song_length
-            if i < MAX_ORDERS
-                pat = song_orders[i]
-            col = 1
-        if song_loaded && i == play_order
-            col = 3
-        if song_loaded && i == selected_order
-            tracker_draw.fill(scr, x - 1, y - 1, MAP_CELL_W, MAP_CELL_H + 2, 2)
-            col = 0
-        if song_loaded && i == pattern_hover_index && i != selected_order
-            tracker_draw.box(scr, x - 1, y - 1, MAP_CELL_W, MAP_CELL_H + 2, 2)
-        if !row_has_data && i % (cols * 4) < cols
-            if i % cols == 0
-                tracker_draw.tiny_marker(scr, x, y, col)
-            else
-                tracker_draw.tiny_dash2(scr, x, y, col)
-        elif pat == 0
-            tracker_draw.tiny_dash2(scr, x, y, col)
-        else
-            tracker_draw.tiny_hex2(scr, x, y, pat, col)
-;
-
-: in_pattern_map(dev = vimana.device) (( bool ))
-    let mx = dev.pointer_x()
-    let my = dev.pointer_y()
-    let cols = map_cols()
-    <- mx >= MAP_X && mx < MAP_X + cols * MAP_CELL_W && my >= MAP_Y && my < MAP_Y + 32 * MAP_CELL_H
-;
-
-: pattern_map_index_at(dev = vimana.device) (( num ))
-    let mx = dev.pointer_x()
-    let my = dev.pointer_y()
-    let cols = map_cols()
-    let cx = stdr.floor((mx - MAP_X) / MAP_CELL_W)
-    let cy = stdr.floor((my - MAP_Y) / MAP_CELL_H)
-    if cx < 0 || cx >= cols || cy < 0 || cy >= 32
-        <- -1
-    let i = cy * cols + cx
-    if i < 0 || i >= MAX_ORDERS
-        <- -1
-    <- i
-;
-
-: bump_pattern(i = num, delta = num) (( -- ))
-    if !song_loaded
-        <-
-    if i < 0 || i >= song_length
-        <-
-    let ?p = song_orders[i] + delta
-    if p < 0
-        p = MAX_PATTERNS - 1
-    if p >= MAX_PATTERNS
-        p = 0
-    song_orders[i] = p
-    if p + 1 > song_pattern_count
-        song_pattern_count = p + 1
-    dirty = true
-;
-
-: extend_song_to(i = num) (( -- ))
-    if !song_loaded
-        <-
-    if i >= MAX_ORDERS
-        <-
-    if i < song_length
-        <-
-    for (let ?j = song_length; j <= i; j += 1)
-        song_orders[j] = 0
-    song_length = i + 1
-    if song_pattern_count < 1
-        song_pattern_count = 1
-    song_orders[i] = 1
-    if song_pattern_count < 2
-        song_pattern_count = 2
-    dirty = true
-;
-
-: shrink_song_at(i = num) (( -- ))
-    if !song_loaded
-        <-
-    if i < 0 || i >= song_length
-        <-
-    if i == song_length - 1
-        song_orders[i] = 0
-        if song_length > 1
-            song_length -= 1
-        if selected_order >= song_length
-            selected_order = song_length - 1
-    else
-        song_orders[i] = 0
-    if song_restart >= song_length
-        song_restart = 0
-    dirty = true
-;
-
-: scope_volume(track = num) (( num ))
-    if song_loaded && track < MOD_CHANNELS
-        <- ch_volume[track]
-    if track >= TRACKS
-        <- 0
-    let step = cursor_step
-    if playing
-        step = play_step
-    let k = idx(step, track)
-    if k >= 0 && k < stdr.len(vols)
-        <- vols[k]
-    <- 0
-;
-
-: scope_period(track = num) (( num ))
-    if song_loaded && track < MOD_CHANNELS
-        <- ch_period[track]
-    <- 0
-;
-
-: draw_scope(scr = vimana.screen, track = num, x = num) (( -- ))
-    let w = cell_w() - 8
-    let y = SCOPE_Y
-    let min_x = x + 2
-    let max_x = x + w - 4
-    let mid = y + stdr.floor(SCOPE_H / 2) - 1
-    let vol = scope_volume(track)
-    let period = scope_period(track)
-    tracker_draw.box(scr, x, y, w, SCOPE_H, 2)
-    if vol <= 0
-        <-
-    let ?max_vol = 15
-    if song_loaded && track < MOD_CHANNELS
-        max_vol = 64
-    if max_vol <= 0
-        max_vol = 1
-    let ?amp = stdr.floor((vol * (stdr.floor(SCOPE_H / 2) - 3)) / max_vol)
-    if amp < 1
-        amp = 1
-    let ?prev_x = min_x + 1
-    let ?prev_y = mid + 1
-    let cols = scope_cols()
-    for (let ?i = 0; i < cols; i += 1)
-        let ?px = min_x
-        if cols > 1
-            px = min_x + stdr.floor((i * (max_x - min_x)) / (cols - 1))
-        let ?shape = (i * 5 + scope_tick * (track + 1)) % 16
-        if period > 0
-            shape = (shape + stdr.floor(4096 / period)) % 16
-        let py = mid + stdr.floor(((shape - 8) * amp) / 8)
-        if i > 0
-            tracker_draw.line(scr, prev_x, prev_y, px + 1, py + 1, 3)
-        tracker_draw.fill(scr, px, py, 2, 2, 3)
-        prev_x = px + 1
-        prev_y = py + 1
-;
-
-: draw(scr = vimana.screen) (( -- ))
-    if playing
-        page = stdr.floor(play_step / page_steps())
-        scope_tick += 1
-    scr.clear(0)
-    draw_header(scr)
-    draw_transport_buttons(scr)
-    draw_file_buttons(scr)
-
-    if show_help
-        scr.put_text(16, 72, "LDUR move SPC play RET hit BKSP rest S+O/S files", 2, 0)
-        scr.put_text(16, 376, "Z-M notes {} page [] octave -+ bpm 1-5 wave QWERF filter", 2, 0)
-
-    for (let ?t = 0; t < TRACKS; t += 1)
-        let x = GRID_X + t * cell_w()
-        scr.put_text(x, SCOPE_Y - FONT_H, "CH" + tracker_mod.hex1(t + 1) + " - " + channel_type(t), 3, 0)
-        draw_scope(scr, t, x)
-
-    draw_pattern_map(scr)
-    draw_view_mode_buttons(scr)
-
-    if view_mode == 1
-        clamp_sample_view()
-        draw_sample_view(scr)
-        <-
-
-    let ?p_start = page_start()
-    let ?p_end = page_end()
-    let ?first_step = p_start
-    if playing
-        p_start = page_start()
-        p_end = page_end()
-        first_step = play_step - 8
-    else
-        first_step = cursor_step - 8
-    if first_step < p_start
-        first_step = p_start
-    if first_step > p_end - VISIBLE_STEPS
-        first_step = p_end - VISIBLE_STEPS
-
-    for (let ?row = 0; row < VISIBLE_STEPS; row += 1)
-        let s = first_step + row
-        let y = GRID_Y + row * row_h()
-        let row_col = 1
-        if s == play_step && playing
-            row_col = 3
-            tracker_draw.fill(scr, GRID_X, y, TRACKS * cell_w() - 8, row_h(), 3)
-        scr.put_text(GRID_X - 48, y, "00" + tracker_mod.hex2(s - p_start), row_col, 0)
-        for (let ?t = 0; t < TRACKS; t += 1)
-            let x = GRID_X + t * cell_w()
-            let ?fg = 1
-            let ?bg = 0
-            if s == cursor_step && t == cursor_track
-                fg = 0
-                bg = 3
-                tracker_draw.fill(scr, x, y, cell_w(), row_h(), 3)
-            elif s == play_step && playing
-                fg = 0
-                bg = 3
-            scr.put_text(x, y, song_step_text(s, t), fg, bg)
-;
-
-: setup_audio(sys = vimana.system) (( -- ))
-    sys.begin_audio()
-    sys.set_master_volume(master)
-    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
-        sys.stop_voice(ch)
-        sys.set_envelope(ch, 0, 4, 8, 3)
-        sys.set_filter_route(ch, 0)
-    for (let ?t = 0; t < TRACKS; t += 1)
-        sys.set_voice(t, waves[t])
-        sys.set_filter_route(t, 1)
-    sys.set_pulse_width(2, 96)
-    sys.set_filter(cutoff, resonance, filter_mode)
-    sys.end_audio()
-;
-
-: stop_all(sys = vimana.system) (( -- ))
-    sys.begin_audio()
-    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
-        sys.stop_voice(ch)
-    sys.end_audio()
-;
-
-: reset_song_playhead() (( -- ))
-    play_order = 0
-    play_row = 0
-    play_tick = 0
-    play_speed = 6
-    play_tempo = 125
-    bpm = play_tempo
-    play_break_row = -1
-    play_jump_order = -1
-    for (let ?ch = 0; ch < TRACKS; ch += 1)
-        ch_period[ch] = 0
-        ch_volume[ch] = 0
-        ch_sample[ch] = 0
-        ch_vslide_up[ch] = 0
-        ch_vslide_down[ch] = 0
-        ch_pslide_up[ch] = 0
-        ch_pslide_down[ch] = 0
-        ch_arp_x[ch] = 0
-        ch_arp_y[ch] = 0
-        ch_porta_target[ch] = 0
-        ch_porta_speed[ch] = 0
-        ch_vibrato_pos[ch] = 0
-        ch_vibrato_speed[ch] = 0
-        ch_vibrato_depth[ch] = 0
-        ch_tremolo_pos[ch] = 0
-        ch_tremolo_speed[ch] = 0
-        ch_tremolo_depth[ch] = 0
-        ch_note_cut[ch] = -1
-        ch_retrigger[ch] = 0
-;
-
-: song_setup(sys = vimana.system) (( -- ))
-    -- Sustained envelope so notes hold flat across volume slides; brief
-    -- release so stop_voice between rows doesn't click.
-    sys.begin_audio()
-    sys.set_master_volume(master)
-    for (let ?ch = 0; ch < vimana.voice_count; ch += 1)
-        sys.stop_voice(ch)
-        sys.set_envelope(ch, 0, 0, 15, 1)
-        sys.set_filter_route(ch, 0)
-    sys.set_pulse_width(2, 96)
-    sys.set_filter(cutoff, resonance, filter_mode)
-    sys.end_audio()
-;
-
-: start_playback(sys = vimana.system) (( -- ))
-    playing = true
-    if song_loaded
-        song_setup(sys)
-        play_step = (play_order * 64 + play_row) % total_steps()
-        last_tick = sys.ticks() - tempo_tick_ms()
-    else
-        if !play_paused
-            play_step = cursor_step
-        last_tick = sys.ticks()
-        trigger_step(sys, play_step)
-    play_paused = false
-    dirty = true
-;
-
-: pause_playback(sys = vimana.system) (( -- ))
-    playing = false
-    play_paused = true
-    if song_loaded
-        play_tick = 0
-    stop_all(sys)
-    dirty = true
-;
-
-: stop_playback(sys = vimana.system) (( -- ))
-    pause_playback(sys)
-    play_paused = false
-    if song_loaded
-        reset_song_playhead()
-    else
-        play_step = 0
-    dirty = true
-;
-
-: toggle_playback(sys = vimana.system) (( -- ))
-    if playing
-        pause_playback(sys)
-    else
-        start_playback(sys)
-;
-
-: trigger_step(sys = vimana.system, step = num) (( -- ))
-    sys.begin_audio()
-    for (let ?t = 0; t < TRACKS; t += 1)
-        let k = idx(step, t)
-        let n = notes[k]
-        if n >= 0 && vols[k] > 0
-            sys.set_voice(t, waves[t])
-            sys.play_voice(t, n, vols[k])
-        elif n == NOTE_REST
-            sys.stop_voice(t)
-    sys.set_master_volume(master)
-    sys.set_filter(cutoff, resonance, filter_mode)
-    sys.end_audio()
-;
-
-: set_note(sys = vimana.system, semi = num) (( -- ))
-    let k = idx(cursor_step, cursor_track)
-    notes[k] = octave * 12 + semi
-    if vols[k] <= 0
-        vols[k] = 12
-    sys.begin_audio()
-    sys.set_voice(cursor_track, waves[cursor_track])
-    sys.play_voice(cursor_track, notes[k], vols[k])
-    sys.end_audio()
-    dirty = true
-;
-
-: rest_at_cursor(sys = vimana.system) (( -- ))
-    let k = idx(cursor_step, cursor_track)
-    notes[k] = NOTE_REST
-    vols[k] = 0
-    sys.stop_voice(cursor_track)
-    dirty = true
-;
-
-: semitone_for_key(ch = string) (( num ))
-    if ch == "z" || ch == "Z"
-        <- 0
-    if ch == "s" || ch == "S"
-        <- 1
-    if ch == "x" || ch == "X"
-        <- 2
-    if ch == "d" || ch == "D"
-        <- 3
-    if ch == "c" || ch == "C"
-        <- 4
-    if ch == "v" || ch == "V"
-        <- 5
-    if ch == "g" || ch == "G"
-        <- 6
-    if ch == "b" || ch == "B"
-        <- 7
-    if ch == "h" || ch == "H"
-        <- 8
-    if ch == "n" || ch == "N"
-        <- 9
-    if ch == "j" || ch == "J"
-        <- 10
-    if ch == "m" || ch == "M"
-        <- 11
-    <- -1
-;
 
 : handle_keys(sys = vimana.system, dev = vimana.device, fsys = vimana.file) (( -- ))
-    let help_now = dev.key_down(KEY_H)
-    if help_now != show_help
-        show_help = help_now
-        dirty = true
+    let help_now = dev.key_down(tracker_constants.KEY_H)
+    if help_now != tracker_state.show_help
+        tracker_state.show_help = help_now
+        tracker_state.dirty = true
 
-    if editing_filename
+    if tracker_state.editing_filename
         let txt = dev.text_input()
         if stdr.len(txt) > 0
-            edit_filename_text(txt)
-        if dev.key_pressed(KEY_BACKSPACE)
-            backspace_filename()
-        if dev.key_pressed(KEY_RETURN)
-            finish_filename_edit()
-        if dev.key_pressed(KEY_ESCAPE)
-            editing_filename = false
-            dirty = true
+            tracker_editor.edit_filename_text(txt)
+        if dev.key_pressed(tracker_constants.KEY_BACKSPACE)
+            tracker_editor.backspace_filename()
+        if dev.key_pressed(tracker_constants.KEY_RETURN)
+            tracker_editor.finish_filename_edit()
+        if dev.key_pressed(tracker_constants.KEY_ESCAPE)
+            tracker_state.editing_filename = false
+            tracker_state.dirty = true
         <-
 
-    if editing_sample_name
+    if tracker_state.editing_sample_name
         let txt = dev.text_input()
         if stdr.len(txt) > 0
-            edit_sample_name_text(txt)
-        if dev.key_pressed(KEY_BACKSPACE)
-            backspace_sample_name()
-        if dev.key_pressed(KEY_RETURN)
-            finish_sample_name_edit()
-        if dev.key_pressed(KEY_ESCAPE)
-            editing_sample_name = false
-            dirty = true
+            tracker_samples.edit_sample_name_text(txt)
+        if dev.key_pressed(tracker_constants.KEY_BACKSPACE)
+            tracker_samples.backspace_sample_name()
+        if dev.key_pressed(tracker_constants.KEY_RETURN)
+            tracker_samples.finish_sample_name_edit()
+        if dev.key_pressed(tracker_constants.KEY_ESCAPE)
+            tracker_state.editing_sample_name = false
+            tracker_state.dirty = true
         <-
 
-    let cmd = dev.key_down(KEY_LGUI) || dev.key_down(KEY_RGUI)
+    let cmd = dev.key_down(tracker_constants.KEY_LGUI) || dev.key_down(tracker_constants.KEY_RGUI)
     if cmd
-        if dev.key_pressed(KEY_O)
-            open_file(fsys, sys)
+        if dev.key_pressed(tracker_constants.KEY_O)
+            tracker_io.open_file(fsys, sys)
             <-
-        if dev.key_pressed(KEY_S)
-            let shift = dev.key_down(KEY_LSHIFT) || dev.key_down(KEY_RSHIFT)
+        if dev.key_pressed(tracker_constants.KEY_S)
+            let shift = dev.key_down(tracker_constants.KEY_LSHIFT) || dev.key_down(tracker_constants.KEY_RSHIFT)
             if shift
-                save_file_as(fsys)
+                tracker_io.save_file_as(fsys)
             else
-                save_file(fsys)
+                tracker_io.save_file(fsys)
             <-
 
-    if dev.key_pressed(KEY_ESCAPE)
-        stop_playback(sys)
-    if dev.key_pressed(KEY_SPACE)
-        toggle_playback(sys)
-    if dev.key_pressed(KEY_RETURN)
-        trigger_step(sys, cursor_step)
-        dirty = true
-    if dev.key_pressed(KEY_BACKSPACE)
-        rest_at_cursor(sys)
+    if dev.key_pressed(tracker_constants.KEY_ESCAPE)
+        tracker_playback.stop_playback(sys)
+    if dev.key_pressed(tracker_constants.KEY_SPACE)
+        tracker_playback.toggle_playback(sys)
+    if dev.key_pressed(tracker_constants.KEY_RETURN)
+        tracker_playback.trigger_step(sys, tracker_state.cursor_step)
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_BACKSPACE)
+        tracker_editor.rest_at_cursor(sys)
 
-    if dev.key_pressed(KEY_RIGHT)
-        cursor_track += 1
-        dirty = true
-    if dev.key_pressed(KEY_LEFT)
-        cursor_track -= 1
-        dirty = true
-    if dev.key_pressed(KEY_DOWN)
-        cursor_step += 1
-        dirty = true
-    if dev.key_pressed(KEY_UP)
-        cursor_step -= 1
-        dirty = true
-    clamp_cursor()
+    if dev.key_pressed(tracker_constants.KEY_RIGHT)
+        tracker_state.cursor_track += 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_LEFT)
+        tracker_state.cursor_track -= 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_DOWN)
+        tracker_state.cursor_step += 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_UP)
+        tracker_state.cursor_step -= 1
+        tracker_state.dirty = true
+    tracker_editor.clamp_cursor()
 
-    if dev.key_pressed(KEY_LBRACKET) && octave > 1
-        octave -= 1
-        dirty = true
-    if dev.key_pressed(KEY_RBRACKET) && octave < 8
-        octave += 1
-        dirty = true
-    if dev.key_pressed(KEY_PAGEUP)
-        set_page(page - 1)
-    if dev.key_pressed(KEY_PAGEDOWN)
-        set_page(page + 1)
-    if dev.key_pressed(KEY_MINUS) && bpm > 40
-        bpm -= 4
-        dirty = true
-    if dev.key_pressed(KEY_EQUALS) && bpm < 280
-        bpm += 4
-        dirty = true
-    if dev.key_pressed(KEY_COMMA) && master > 0
-        master -= 1
-        dirty = true
-    if dev.key_pressed(KEY_PERIOD) && master < 15
-        master += 1
-        dirty = true
-    if dev.key_pressed(KEY_Q) && cutoff > 80
-        cutoff -= 80
-        dirty = true
-    if dev.key_pressed(KEY_W) && cutoff < 1960
-        cutoff += 80
-        dirty = true
-    if dev.key_pressed(KEY_E) && resonance > 0
-        resonance -= 1
-        dirty = true
-    if dev.key_pressed(KEY_R) && resonance < 15
-        resonance += 1
-        dirty = true
-    if dev.key_pressed(KEY_F)
-        filter_mode += 1
-        if filter_mode > 4
-            filter_mode = 1
-        dirty = true
+    if dev.key_pressed(tracker_constants.KEY_LBRACKET) && tracker_state.octave > 1
+        tracker_state.octave -= 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_RBRACKET) && tracker_state.octave < 8
+        tracker_state.octave += 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_PAGEUP)
+        tracker_editor.set_page(tracker_state.page - 1)
+    if dev.key_pressed(tracker_constants.KEY_PAGEDOWN)
+        tracker_editor.set_page(tracker_state.page + 1)
+    if dev.key_pressed(tracker_constants.KEY_MINUS) && tracker_state.bpm > 40
+        tracker_state.bpm -= 4
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_EQUALS) && tracker_state.bpm < 280
+        tracker_state.bpm += 4
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_COMMA) && tracker_state.master > 0
+        tracker_state.master -= 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_PERIOD) && tracker_state.master < 15
+        tracker_state.master += 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_Q) && tracker_state.cutoff > 80
+        tracker_state.cutoff -= 80
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_W) && tracker_state.cutoff < 1960
+        tracker_state.cutoff += 80
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_E) && tracker_state.resonance > 0
+        tracker_state.resonance -= 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_R) && tracker_state.resonance < 15
+        tracker_state.resonance += 1
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_F)
+        tracker_state.filter_mode += 1
+        if tracker_state.filter_mode > 4
+            tracker_state.filter_mode = 1
+        tracker_state.dirty = true
 
-    if dev.key_pressed(KEY_1)
-        waves[cursor_track] = vimana.wave_triangle
-        dirty = true
-    if dev.key_pressed(KEY_2)
-        waves[cursor_track] = vimana.wave_sawtooth
-        dirty = true
-    if dev.key_pressed(KEY_3)
-        waves[cursor_track] = vimana.wave_pulse
-        dirty = true
-    if dev.key_pressed(KEY_4)
-        waves[cursor_track] = vimana.wave_noise
-        dirty = true
-    if dev.key_pressed(KEY_5)
-        waves[cursor_track] = vimana.wave_psg
-        dirty = true
+    if dev.key_pressed(tracker_constants.KEY_1)
+        tracker_state.waves[tracker_state.cursor_track] = vimana.wave_triangle
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_2)
+        tracker_state.waves[tracker_state.cursor_track] = vimana.wave_sawtooth
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_3)
+        tracker_state.waves[tracker_state.cursor_track] = vimana.wave_pulse
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_4)
+        tracker_state.waves[tracker_state.cursor_track] = vimana.wave_noise
+        tracker_state.dirty = true
+    if dev.key_pressed(tracker_constants.KEY_5)
+        tracker_state.waves[tracker_state.cursor_track] = vimana.wave_psg
+        tracker_state.dirty = true
 
     let txt = dev.text_input()
     if stdr.len(txt) > 0
-        let semi = semitone_for_key(stdr.char_at(txt, 0))
+        let semi = tracker_constants.semitone_for_key(stdr.char_at(txt, 0))
         if semi >= 0
-            set_note(sys, semi)
-            cursor_step += 1
-            clamp_cursor()
-            dirty = true
+            tracker_editor.set_note(sys, semi)
+            tracker_state.cursor_step += 1
+            tracker_editor.clamp_cursor()
+            tracker_state.dirty = true
 ;
 
 : handle_mouse(sys = vimana.system, dev = vimana.device, fsys = vimana.file) (( -- ))
     let new_button_down = dev.mouse_down(vimana.mouse_left)
-    if new_button_down != button_down
-        button_down = new_button_down
-        dirty = true
-    let new_transport_hover = hovered_transport_btn(dev)
-    if new_transport_hover != transport_btn_hover
-        transport_btn_hover = new_transport_hover
-        dirty = true
-    let new_hover = hovered_file_btn(dev)
-    if new_hover != file_btn_hover
-        file_btn_hover = new_hover
-        dirty = true
-    let new_view_hover = hovered_view_btn(dev)
-    if new_view_hover != view_btn_hover
-        view_btn_hover = new_view_hover
-        dirty = true
+    if new_button_down != tracker_state.button_down
+        tracker_state.button_down = new_button_down
+        tracker_state.dirty = true
+    let new_transport_hover = tracker_ui.hovered_transport_btn(dev)
+    if new_transport_hover != tracker_state.transport_btn_hover
+        tracker_state.transport_btn_hover = new_transport_hover
+        tracker_state.dirty = true
+    let new_hover = tracker_ui.hovered_file_btn(dev)
+    if new_hover != tracker_state.file_btn_hover
+        tracker_state.file_btn_hover = new_hover
+        tracker_state.dirty = true
+    let new_view_hover = tracker_ui.hovered_view_btn(dev)
+    if new_view_hover != tracker_state.view_btn_hover
+        tracker_state.view_btn_hover = new_view_hover
+        tracker_state.dirty = true
     let ?new_nav_hover = -1
     let ?new_load_hover = false
     let ?new_field_hover = -1
     let ?new_btn_hover = -1
     let ?new_action_hover = -1
-    if view_mode == 1
-        new_nav_hover = hovered_sample_nav(dev)
-        new_load_hover = in_sample_load_btn(dev)
-        new_field_hover = hovered_sample_field(dev)
-        new_btn_hover = hovered_sample_field_btn(dev)
-        new_action_hover = hovered_sample_action(dev)
-    if new_nav_hover != sample_nav_hover
-        sample_nav_hover = new_nav_hover
-        dirty = true
-    if new_load_hover != sample_load_hover
-        sample_load_hover = new_load_hover
-        dirty = true
-    if new_field_hover != sample_field_hover
-        sample_field_hover = new_field_hover
-        dirty = true
-    if new_btn_hover != sample_btn_hover
-        sample_btn_hover = new_btn_hover
-        dirty = true
-    if new_action_hover != sample_action_hover
-        sample_action_hover = new_action_hover
-        dirty = true
+    if tracker_state.view_mode == 1
+        new_nav_hover = tracker_ui.hovered_sample_nav(dev)
+        new_load_hover = tracker_ui.in_sample_load_btn(dev)
+        new_field_hover = tracker_ui.hovered_sample_field(dev)
+        new_btn_hover = tracker_ui.hovered_sample_field_btn(dev)
+        new_action_hover = tracker_ui.hovered_sample_action(dev)
+    if new_nav_hover != tracker_state.sample_nav_hover
+        tracker_state.sample_nav_hover = new_nav_hover
+        tracker_state.dirty = true
+    if new_load_hover != tracker_state.sample_load_hover
+        tracker_state.sample_load_hover = new_load_hover
+        tracker_state.dirty = true
+    if new_field_hover != tracker_state.sample_field_hover
+        tracker_state.sample_field_hover = new_field_hover
+        tracker_state.dirty = true
+    if new_btn_hover != tracker_state.sample_btn_hover
+        tracker_state.sample_btn_hover = new_btn_hover
+        tracker_state.dirty = true
+    if new_action_hover != tracker_state.sample_action_hover
+        tracker_state.sample_action_hover = new_action_hover
+        tracker_state.dirty = true
     let ?new_pattern_hover = -1
-    if in_pattern_map(dev)
-        new_pattern_hover = pattern_map_index_at(dev)
-    if new_pattern_hover != pattern_hover_index
-        pattern_hover_index = new_pattern_hover
-        dirty = true
+    if tracker_ui.in_pattern_map(dev)
+        new_pattern_hover = tracker_ui.pattern_map_index_at(dev)
+    if new_pattern_hover != tracker_state.pattern_hover_index
+        tracker_state.pattern_hover_index = new_pattern_hover
+        tracker_state.dirty = true
 
     let wy = dev.wheel_y()
-    if wy != 0 && song_loaded && pattern_hover_index >= 0 && pattern_hover_index < song_length
+    let pattern_wheel = wy != 0 && tracker_state.song_loaded && tracker_state.pattern_hover_index >= 0 && tracker_state.pattern_hover_index < tracker_state.song_length
+    if pattern_wheel
         let ?delta = 1
         if wy < 0
             delta = -1
-        bump_pattern(pattern_hover_index, delta)
-    if wy != 0 && view_mode == 1 && sample_field_hover >= 1
+        tracker_editor.bump_pattern(tracker_state.pattern_hover_index, delta)
+    if wy != 0 && tracker_state.view_mode == 1 && tracker_state.sample_field_hover >= 1
         let ?delta = 1
         if wy < 0
             delta = -1
-        adjust_sample_field(sys, sample_field_hover, delta)
+        tracker_samples.adjust_sample_field(sys, tracker_state.sample_field_hover, delta)
+    if wy != 0 && !pattern_wheel && tracker_state.view_mode == 0 && (tracker_ui.in_grid_area(dev) || tracker_ui.in_grid_scrollbar(dev))
+        tracker_state.cursor_step -= wy
+        tracker_editor.clamp_cursor()
+        tracker_state.dirty = true
 
-    if view_mode == 1 && sample_dragging
-        update_sample_drag(dev)
+    if tracker_state.scrollbar_dragging
+        if dev.mouse_down(vimana.mouse_left)
+            tracker_state.cursor_step = tracker_ui.scrollbar_step_at(dev.pointer_y())
+            tracker_editor.clamp_cursor()
+            tracker_state.dirty = true
+        else
+            tracker_state.scrollbar_dragging = false
+
+    if tracker_state.view_mode == 1 && tracker_state.sample_dragging
+        tracker_samples.update_sample_drag(dev)
         if !dev.mouse_down(vimana.mouse_left)
-            sample_dragging = false
-            dirty = true
+            tracker_state.sample_dragging = false
+            tracker_state.dirty = true
 
-    if dev.mouse_pressed(vimana.mouse_right) && song_loaded && pattern_hover_index >= 0
-        shrink_song_at(pattern_hover_index)
+    if dev.mouse_pressed(vimana.mouse_right) && tracker_state.song_loaded && tracker_state.pattern_hover_index >= 0
+        tracker_editor.shrink_song_at(tracker_state.pattern_hover_index)
         <-
 
     if !dev.mouse_pressed(vimana.mouse_left)
         <-
     let mx = dev.pointer_x()
     let my = dev.pointer_y()
-    if editing_sample_name && (view_mode != 1 || sample_field_hover != 0)
-        finish_sample_name_edit()
-    if mx >= HEADER_FILE_X && mx < HEADER_FILE_X + HEADER_FILE_W && my >= HEADER_FILE_Y && my < HEADER_FILE_Y + FONT_H
-        editing_filename = true
-        editing_sample_name = false
-        dirty = true
+    if tracker_state.editing_sample_name && (tracker_state.view_mode != 1 || tracker_state.sample_field_hover != 0)
+        tracker_samples.finish_sample_name_edit()
+    if mx >= tracker_constants.HEADER_FILE_X && mx < tracker_constants.HEADER_FILE_X + tracker_constants.HEADER_FILE_W && my >= tracker_constants.HEADER_FILE_Y && my < tracker_constants.HEADER_FILE_Y + tracker_constants.FONT_H
+        tracker_state.editing_filename = true
+        tracker_state.editing_sample_name = false
+        tracker_state.dirty = true
         <-
-    elif editing_filename
-        finish_filename_edit()
-    if transport_btn_hover == 0
-        toggle_playback(sys)
+    elif tracker_state.editing_filename
+        tracker_editor.finish_filename_edit()
+    if tracker_state.transport_btn_hover == 0
+        tracker_playback.toggle_playback(sys)
         <-
-    if transport_btn_hover == 1
-        stop_playback(sys)
+    if tracker_state.transport_btn_hover == 1
+        tracker_playback.stop_playback(sys)
         <-
-    if file_btn_hover == 0
-        new_file(sys)
+    if tracker_state.file_btn_hover == 0
+        tracker_editor.new_file(sys)
         <-
-    if file_btn_hover == 1
-        open_file(fsys, sys)
+    if tracker_state.file_btn_hover == 1
+        tracker_io.open_file(fsys, sys)
         <-
-    if file_btn_hover == 2
-        save_file(fsys)
+    if tracker_state.file_btn_hover == 2
+        tracker_io.save_file(fsys)
         <-
-    if view_btn_hover == 0
-        view_mode = 0
-        editing_sample_name = false
-        dirty = true
+    if tracker_state.view_btn_hover == 0
+        tracker_state.view_mode = 0
+        tracker_state.editing_sample_name = false
+        tracker_state.dirty = true
         <-
-    if view_btn_hover == 1
-        view_mode = 1
-        clamp_sample_view()
-        dirty = true
+    if tracker_state.view_btn_hover == 1
+        tracker_state.view_mode = 1
+        tracker_samples.clamp_sample_view()
+        tracker_state.dirty = true
         <-
-    if song_loaded && pattern_hover_index >= 0
-        if pattern_hover_index < song_length
-            selected_order = pattern_hover_index
-        elif pattern_hover_index == song_length
-            extend_song_to(pattern_hover_index)
-            selected_order = pattern_hover_index
-        dirty = true
+    if tracker_state.song_loaded && tracker_state.pattern_hover_index >= 0
+        if tracker_state.pattern_hover_index < tracker_state.song_length
+            tracker_state.selected_order = tracker_state.pattern_hover_index
+        elif tracker_state.pattern_hover_index == tracker_state.song_length
+            tracker_editor.extend_song_to(tracker_state.pattern_hover_index)
+            tracker_state.selected_order = tracker_state.pattern_hover_index
+        tracker_state.dirty = true
         <-
-    if view_mode == 1
-        if sample_nav_hover == 0
-            sample_view_index -= 1
-            clamp_sample_view()
-            invalidate_sample_peaks()
-            editing_sample_name = false
-            dirty = true
+    if tracker_state.view_mode == 1
+        if tracker_state.sample_nav_hover == 0
+            tracker_state.sample_view_index -= 1
+            tracker_samples.clamp_sample_view()
+            tracker_samples.invalidate_sample_peaks()
+            tracker_state.editing_sample_name = false
+            tracker_state.dirty = true
             <-
-        if sample_nav_hover == 1
-            sample_view_index += 1
-            clamp_sample_view()
-            invalidate_sample_peaks()
-            editing_sample_name = false
-            dirty = true
+        if tracker_state.sample_nav_hover == 1
+            tracker_state.sample_view_index += 1
+            tracker_samples.clamp_sample_view()
+            tracker_samples.invalidate_sample_peaks()
+            tracker_state.editing_sample_name = false
+            tracker_state.dirty = true
             <-
-        if sample_load_hover
-            load_sample_file(fsys, sys)
+        if tracker_state.sample_load_hover
+            tracker_io.load_sample_file(fsys, sys)
             <-
-        if sample_btn_hover >= 0
-            handle_sample_field_btn(sys, sample_btn_hover)
+        if tracker_state.sample_btn_hover >= 0
+            tracker_samples.handle_sample_field_btn(sys, tracker_state.sample_btn_hover)
             <-
-        if sample_field_hover == 0
-            editing_sample_name = true
-            dirty = true
+        if tracker_state.sample_field_hover == 0
+            tracker_state.editing_sample_name = true
+            tracker_state.dirty = true
             <-
-        if sample_action_hover == 0
-            cut_sample_to_selection(sys)
+        if tracker_state.sample_action_hover == 0
+            tracker_samples.cut_sample_to_selection(sys)
             <-
-        if sample_action_hover == 1
-            set_loop_from_selection(sys)
+        if tracker_state.sample_action_hover == 1
+            tracker_samples.set_loop_from_selection(sys)
             <-
-        if sample_action_hover == 2
-            clear_sample_selection()
+        if tracker_state.sample_action_hover == 2
+            tracker_samples.clear_sample_selection()
             <-
-        if begin_sample_drag(dev)
+        if tracker_samples.begin_sample_drag(dev)
             <-
-        editing_sample_name = false
+        tracker_state.editing_sample_name = false
         <-
-    if mx >= GRID_X && mx < GRID_X + TRACKS * cell_w() && my >= GRID_Y && my < GRID_Y + VISIBLE_STEPS * row_h()
-        let ?p_start = page_start()
-        let ?p_end = page_end()
+    if tracker_ui.in_grid_scrollbar(dev)
+        tracker_state.cursor_step = tracker_ui.scrollbar_step_at(my)
+        tracker_editor.clamp_cursor()
+        tracker_state.scrollbar_dragging = true
+        tracker_state.dirty = true
+        <-
+    if mx >= tracker_constants.GRID_X && mx < tracker_constants.GRID_X + tracker_constants.TRACKS * tracker_editor.cell_w() && my >= tracker_constants.GRID_Y && my < tracker_constants.GRID_Y + tracker_constants.VISIBLE_STEPS * tracker_editor.row_h()
+        let ?p_start = tracker_editor.page_start()
+        let ?p_end = tracker_editor.page_end()
         let ?first_step = p_start
-        if playing
-            page = stdr.floor(play_step / page_steps())
-            p_start = page_start()
-            p_end = page_end()
-            first_step = play_step - 8
+        if tracker_state.playing
+            tracker_state.page = stdr.floor(tracker_state.play_step / tracker_editor.page_steps())
+            p_start = tracker_editor.page_start()
+            p_end = tracker_editor.page_end()
+            first_step = tracker_state.play_step - 8
         else
-            first_step = cursor_step - 8
+            first_step = tracker_state.cursor_step - 8
         if first_step < p_start
             first_step = p_start
-        if first_step > p_end - VISIBLE_STEPS
-            first_step = p_end - VISIBLE_STEPS
-        cursor_track = stdr.floor((mx - GRID_X) / cell_w())
-        cursor_step = first_step + stdr.floor((my - GRID_Y) / row_h())
-        clamp_cursor()
-        trigger_step(sys, cursor_step)
-        dirty = true
-;
-
-def CURSOR_CHR = [
-    0x0000, 0x0000, 0x0814, 0x1417, 0x0000, 0x0000, 0x0008, 0x0808,
-    0x0000, 0x0000, 0x0000, 0x00c0, 0x0000, 0x0000, 0x0000, 0x0000,
-    0x1010, 0x2010, 0x1008, 0x0700, 0x0f0f, 0x1f0f, 0x0f07, 0x0000,
-    0x2010, 0x1010, 0x2020, 0xc000, 0xc0e0, 0xe0e0, 0xc0c0, 0x0000
-]
-def BG_CHR = [
-    0x0000, 0x00ff, 0x00ff, 0x00ff, 0xffff, 0xff00, 0xff00, 0xff00,
-    0x00ff, 0x00ff, 0x00ff, 0x0000, 0xff00, 0xff00, 0xff00, 0xffff,
-    0xff00, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000
-]
-def CLOSE_ICN = [
-    0x0000, 0x007f, 0x4040, 0x4040, 0x4040, 0x4040, 0x407f, 0x0000,
-    0x0000, 0x00f7, 0x1017, 0x1017, 0x1017, 0x1017, 0x10f7, 0x0000
-]
-def CLOSE_DOWN_ICN = [
-    0x0000, 0x007f, 0x4252, 0x4a40, 0x7840, 0x4a52, 0x427f, 0x0000,
-    0x0000, 0x00f7, 0x1057, 0x9017, 0xf017, 0x9057, 0x10f7, 0x0000
-]
-
-def CURSOR_ADDR = 0x7E0
-def CLOSE_ADDR = 0x8E0
-def CLOSE_DOWN_ADDR = 0x9E0
-def BG_ADDR = 0xAE0
-def TITLEBAR_H = 17
-def TITLEBAR_SHADE_H = 17
-def TITLEBAR_EDGE_Y = 14
-def HEADER_DBLCLICK_MS = 400
-def HEADER_DBLCLICK_DIST = 8
-def ?close_button_active = false
-def ?titlebar_capture = false
-def ?titlebar_shaded = false
-def ?titlebar_saved_height = 0
-def ?header_click_time = 0
-def ?header_click_x = 0
-def ?header_click_y = 0
-def ?last_mx = -1
-def ?last_my = -1
-def ?last_close_button_state = false
-def ?last_titlebar_shaded = false
-
-: redraw_titlebar_span(scr = vimana.screen, x = num, w = num) (( -- ))
-    if w <= 0
-        <-
-    let tiles = stdr.floor((w + 7) / 8)
-    scr.set_auto(0x15).set_addr(BG_ADDR).set_x(x).set_y(0)
-    for (let ?i = 0; i < tiles; i += 1)
-        scr.sprite(0x85)
-;
-
-: draw_titlebar_decor(scr = vimana.screen) (( -- ))
-    scr.set_auto(0x00).set_x(scr.width() - 1).set_y(TITLEBAR_EDGE_Y)
-    scr.pixel(0xa2)
-    scr.set_x(1)
-    scr.pixel(0xb2)
-;
-
-: toggle_titlebar_shade(scr = vimana.screen) (( -- ))
-    if titlebar_shaded
-        titlebar_shaded = false
-        <-
-    titlebar_shaded = true
-;
-
-: draw_titlebar_text(scr = vimana.screen, title = string) (( -- ))
-    let ?max_chars = stdr.floor((scr.width() - 48) / 8) - 2
-    if max_chars <= 0
-        <-
-    let ?body = title
-    if stdr.len(body) > max_chars
-        if max_chars > 3
-            body = stdr.slice(body, 0, max_chars - 3) + "..."
-        else
-            body = stdr.slice(body, 0, max_chars)
-    let label = " " + body + " "
-    let ?tx = stdr.floor((scr.width() - stdr.len(label) * 8) / 2)
-    if tx < 24
-        tx = 24
-    redraw_titlebar_span(scr, tx, stdr.len(label) * 8)
-    scr.put_text(tx, 1, label, vimana.color_fg, 2)
-;
-
-: in_close_button(dev = vimana.device) (( bool ))
-    <- dev.pointer_x() >= 8 && dev.pointer_x() < 24 && dev.pointer_y() >= 0 && dev.pointer_y() < 16
-;
-
-: in_titlebar(dev = vimana.device) (( bool ))
-    <- dev.pointer_y() >= 0 && dev.pointer_y() < TITLEBAR_H
-;
-
-: update_close_button(dev = vimana.device, sys = vimana.system) (( -- ))
-    let hover = in_close_button(dev)
-    if dev.mouse_pressed(vimana.mouse_left) && hover
-        close_button_active = true
-        <-
-    if !dev.mouse_down(vimana.mouse_left)
-        if close_button_active && hover
-            sys.quit()
-        close_button_active = false
-;
-
-: update_titlebar(dev = vimana.device, sys = vimana.system, scr = vimana.screen) (( bool ))
-    if !titlebar_shaded && scr.height() > TITLEBAR_SHADE_H
-        titlebar_saved_height = scr.height()
-    let hover = in_titlebar(dev)
-    if dev.mouse_pressed(vimana.mouse_left) && hover
-        titlebar_capture = true
-        if !in_close_button(dev)
-            let now = sys.ticks()
-            let dx = dev.pointer_x() - header_click_x
-            let dy = dev.pointer_y() - header_click_y
-            let dist = dx * dx + dy * dy
-            if now - header_click_time < HEADER_DBLCLICK_MS && dist < HEADER_DBLCLICK_DIST * HEADER_DBLCLICK_DIST
-                toggle_titlebar_shade(scr)
-                header_click_time = 0
-            else
-                header_click_time = now
-                header_click_x = dev.pointer_x()
-                header_click_y = dev.pointer_y()
-    elif !dev.mouse_down(vimana.mouse_left)
-        titlebar_capture = false
-    update_close_button(dev, sys)
-    <- titlebar_capture || (hover && !dev.mouse_down(vimana.mouse_left))
-;
-
-: draw_close_button(scr = vimana.screen) (( -- ))
-    let ?addr = CLOSE_ADDR
-    if close_button_active
-        addr = CLOSE_DOWN_ADDR
-    scr.set_auto(0x15).set_addr(addr).set_x(8).set_y(0)
-    scr.sprite(0x09)
-    scr.set_addr(addr).set_x(13).sprite(0x19)
+        if first_step > p_end - tracker_constants.VISIBLE_STEPS
+            first_step = p_end - tracker_constants.VISIBLE_STEPS
+        tracker_state.cursor_track = stdr.floor((mx - tracker_constants.GRID_X) / tracker_editor.cell_w())
+        tracker_state.cursor_step = first_step + stdr.floor((my - tracker_constants.GRID_Y) / tracker_editor.row_h())
+        tracker_editor.clamp_cursor()
+        tracker_playback.trigger_step(sys, tracker_state.cursor_step)
+        tracker_state.dirty = true
 ;
 
 -> ()
     let sys = vimana.system()
-    let scr = vimana.screen("Tracker", SCREEN_W, SCREEN_H, SCALE)
-    scr.set_cursor(CURSOR_CHR)
+    let scr = vimana.screen("Tracker", tracker_constants.SCREEN_W, tracker_constants.SCREEN_H, tracker_constants.SCALE)
+    scr.set_cursor(tracker_constants.CURSOR_CHR)
     scr.hide_cursor()
     let dev = sys.device()
     let fsys = sys.file()
     tracker_font.install(scr)
-    -- Upload titlebar sprites AFTER font to avoid overlap
-    scr.set_sprite(CURSOR_ADDR, CURSOR_CHR, 1)
-    scr.set_sprite(BG_ADDR, BG_CHR, 1)
-    scr.set_sprite(CLOSE_ADDR, CLOSE_ICN, 1)
-    scr.set_sprite(CLOSE_DOWN_ADDR, CLOSE_DOWN_ICN, 1)
+    scr.set_sprite(tracker_constants.CURSOR_ADDR, tracker_constants.CURSOR_CHR, 1)
+    scr.set_sprite(tracker_constants.BG_ADDR, tracker_constants.BG_CHR, 1)
+    scr.set_sprite(tracker_constants.CLOSE_ADDR, tracker_constants.CLOSE_ICN, 1)
+    scr.set_sprite(tracker_constants.CLOSE_DOWN_ADDR, tracker_constants.CLOSE_DOWN_ICN, 1)
     scr.set_drag_region(16)
-    titlebar_saved_height = scr.height()
-    bpm = tracker_demo.seed(notes, vols, waves)
-    ensure_editor_arrays()
-    song_alloc()
-    setup_audio(sys)
+    tracker_state.titlebar_saved_height = scr.height()
+    tracker_state.bpm = tracker_demo.seed(tracker_state.notes, tracker_state.vols, tracker_state.waves)
+    tracker_editor.ensure_editor_arrays()
+    tracker_playback.song_alloc()
+    tracker_playback.setup_audio(sys)
     let args = stdr.args()
     for (let ?i = 0; i < len(args); i += 1)
         let path = str(args[i] ?? "")
-        if load_mod_path(fsys, sys, path)
+        if tracker_io.load_mod_path(fsys, sys, path)
             i = len(args)
 
     sys.run(scr, () => {
@@ -3136,82 +373,70 @@ def ?last_titlebar_shaded = false
         let mx = dev.pointer_x()
         let my = dev.pointer_y()
 
-        let titlebar_busy = update_titlebar(dev, sys, scr)
-        if !titlebar_shaded
+        let titlebar_busy = tracker_ui.update_titlebar(dev, sys, scr)
+        if !tracker_state.titlebar_shaded
             if !titlebar_busy
                 handle_mouse(sys, dev, fsys)
             handle_keys(sys, dev, fsys)
 
-        if playing && !titlebar_shaded
-            if song_loaded
+        if tracker_state.playing && !tracker_state.titlebar_shaded
+            if tracker_state.song_loaded
                 let now = sys.ticks()
-                let ?tick_ms = tempo_tick_ms()
-
+                let ?tick_ms = tracker_playback.tempo_tick_ms()
                 if tick_ms < 1
                     tick_ms = 1
-
-                if now - last_tick >= tick_ms
-                    last_tick += tick_ms
-
-                    -- If the program fell too far behind, drop timing debt
-                    -- instead of batching many immediate audio commands later.
-                    if now - last_tick >= tick_ms * 4
-                        last_tick = now
-
+                if now - tracker_state.last_tick >= tick_ms
+                    tracker_state.last_tick += tick_ms
+                    if now - tracker_state.last_tick >= tick_ms * 4
+                        tracker_state.last_tick = now
                     sys.begin_audio()
-
-                    if play_tick == 0
-                        song_process_row(sys)
+                    if tracker_state.play_tick == 0
+                        tracker_playback.song_process_row(sys)
                     else
-                        song_apply_continuous(sys)
-
+                        tracker_playback.song_apply_continuous(sys)
                     sys.end_audio()
-
-                    play_tick += 1
-
-                    if play_tick >= play_speed
-                        play_tick = 0
-                        song_advance_row()
-
-                    play_step = (play_order * 64 + play_row) % total_steps()
-                dirty = true
+                    tracker_state.play_tick += 1
+                    if tracker_state.play_tick >= tracker_state.play_speed
+                        tracker_state.play_tick = 0
+                        tracker_playback.song_advance_row()
+                    tracker_state.play_step = (tracker_state.play_order * 64 + tracker_state.play_row) % tracker_editor.total_steps()
+                tracker_state.dirty = true
             else
                 let now = sys.ticks()
-                let step_ms = editor_step_ms()
-                if now - last_tick >= step_ms
-                    last_tick = now
-                    play_step = (play_step + 1) % total_steps()
-                    trigger_step(sys, play_step)
-                    dirty = true
+                let step_ms = tracker_playback.editor_step_ms()
+                if now - tracker_state.last_tick >= step_ms
+                    tracker_state.last_tick = now
+                    tracker_state.play_step = (tracker_state.play_step + 1) % tracker_editor.total_steps()
+                    tracker_playback.trigger_step(sys, tracker_state.play_step)
+                    tracker_state.dirty = true
 
-        let cursor_dirty = mx != last_mx || my != last_my
-        let full_redraw = dirty || cursor_dirty || close_button_active != last_close_button_state || titlebar_shaded != last_titlebar_shaded
+        let cursor_dirty = mx != tracker_state.last_mx || my != tracker_state.last_my
+        let full_redraw = tracker_state.dirty || cursor_dirty || tracker_state.close_button_active != tracker_state.last_close_button_state || tracker_state.titlebar_shaded != tracker_state.last_titlebar_shaded
 
         if full_redraw
-            last_close_button_state = close_button_active
-            last_titlebar_shaded = titlebar_shaded
-            if !titlebar_shaded
-                draw(scr)
+            tracker_state.last_close_button_state = tracker_state.close_button_active
+            tracker_state.last_titlebar_shaded = tracker_state.titlebar_shaded
+            if !tracker_state.titlebar_shaded
+                tracker_ui.draw(scr)
             else
                 scr.clear(0)
-            -- Draw titlebar BG
             scr.set_auto(0x15).set_x(0).set_y(0)
             for (let ?i = 0; i < scr.width() / 8; i += 1)
-                scr.set_addr(BG_ADDR).sprite(0x85)
-            draw_titlebar_decor(scr)
-            draw_titlebar_text(scr, "Tracker")
-            draw_close_button(scr)
+                scr.set_addr(tracker_constants.BG_ADDR).sprite(0x85)
+            tracker_ui.draw_titlebar_decor(scr)
+            tracker_ui.draw_titlebar_text(scr, "Tracker")
+            tracker_ui.draw_close_button(scr)
             scr.set_auto(0x00)
-            dirty = false
+            tracker_state.dirty = false
 
         if full_redraw || cursor_dirty
-            last_mx = mx
-            last_my = my
-            scr.set_auto(0x16).set_addr(CURSOR_ADDR).set_x(mx).set_y(my).sprite(0x85)
-            scr.set_auto(0x16).set_addr(CURSOR_ADDR + 0x20).set_x(mx).set_y(my+8).sprite(0x85)
+            tracker_state.last_mx = mx
+            tracker_state.last_my = my
+            scr.set_auto(0x16).set_addr(tracker_constants.CURSOR_ADDR).set_x(mx).set_y(my).sprite(0x85)
+            scr.set_auto(0x16).set_addr(tracker_constants.CURSOR_ADDR + 0x20).set_x(mx).set_y(my+8).sprite(0x85)
             scr.set_auto(0x00)
 
         scr.present()
     })
-    stop_all(sys)
+    tracker_playback.stop_all(sys)
 ;
