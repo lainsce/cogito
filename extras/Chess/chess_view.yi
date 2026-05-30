@@ -1,0 +1,308 @@
+cask chess_view
+
+bring stdr
+bring vimana
+bring chess_model
+bring chess_data
+bring chess_font
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Layout
+-- ─────────────────────────────────────────────────────────────────────────────
+
+def WIN_W = 256
+def WIN_H = 192
+def CELL  = 16
+def BOARD_X = 16
+def BOARD_Y = 24
+def BOARD_PX = 128
+
+def PANEL_X = 160
+def PANEL_Y = 24
+def PANEL_W = 88
+def PANEL_H = 152
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Palette slots
+-- Slots 1-3 carry the titlebar colours that the BG_CHR sprite expects via
+-- blend mode 5 (color 1 → slot 1, color 2 → slot 2, color 3 → slot 3).
+-- ─────────────────────────────────────────────────────────────────────────────
+
+def C_BG       = 0   -- window background
+def C_INK      = 1   -- titlebar pattern light + body text / fine UI
+def C_TBAR_BG  = 2   -- titlebar background (also bg for titlebar text)
+def C_TBAR_DK  = 3   -- titlebar edge accent
+def C_LIGHT_SQ = 4   -- light board square
+def C_DARK_SQ  = 5   -- dark board square
+def C_WHITE    = 6   -- white pieces
+def C_BLACK    = 7   -- black pieces
+def C_SELECT   = 8   -- selected square highlight
+def C_MOVE     = 9   -- legal-move dot
+def C_LAST     = 10  -- last-move trail
+def C_PANEL    = 11  -- side panel background
+def C_ACCENT   = 12  -- side panel accent line
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Drawing helpers
+-- ─────────────────────────────────────────────────────────────────────────────
+
+: fill_rect(scr = vimana.screen, x = num, y = num, w = num, h = num, color = num) (( -- ))
+    for (let ?py = 0; py < h; py += 1)
+        for (let ?px = 0; px < w; px += 1)
+            scr.set_x(x + px).set_y(y + py).pixel(color)
+;
+
+: outline_rect(scr = vimana.screen, x = num, y = num, w = num, h = num, color = num) (( -- ))
+    for (let ?i = 0; i < w; i += 1)
+        scr.set_x(x + i).set_y(y).pixel(color)
+        scr.set_x(x + i).set_y(y + h - 1).pixel(color)
+    for (let ?j = 0; j < h; j += 1)
+        scr.set_x(x).set_y(y + j).pixel(color)
+        scr.set_x(x + w - 1).set_y(y + j).pixel(color)
+;
+
+-- Bit lookup for a 16-bit row. bit 0 = leftmost pixel (MSB).
+: word_bit_on(word = num, bit_from_left = num) (( bool ))
+    let ?mask = 32768
+    for (let ?i = 0; i < bit_from_left; i += 1)
+        mask = stdr.floor(mask / 2)
+    <- word % (mask * 2) >= mask
+;
+
+: pixel_on(bmp = [num], x = num, y = num) (( bool ))
+    if x < 0 || x > 15 || y < 0 || y > 15
+        <- false
+    <- word_bit_on(bmp[y], x)
+;
+
+-- 16x16 piece renderer with a 1-pixel contrasting outline.
+: draw_piece16(scr = vimana.screen, x = num, y = num, kind = num, body = num, outline = num) (( -- ))
+    let bmp = chess_data.piece_bitmap(kind)
+    -- Outline pass: any OFF pixel with at least one ON 4-neighbour becomes outline.
+    for (let ?sy = 0; sy < 16; sy += 1)
+        for (let ?sx = 0; sx < 16; sx += 1)
+            if !pixel_on(bmp, sx, sy)
+                if pixel_on(bmp, sx - 1, sy) || pixel_on(bmp, sx + 1, sy) || pixel_on(bmp, sx, sy - 1) || pixel_on(bmp, sx, sy + 1)
+                    scr.set_x(x + sx).set_y(y + sy).pixel(outline)
+    -- Body pass.
+    for (let ?ty = 0; ty < 16; ty += 1)
+        let row = bmp[ty]
+        for (let ?tx = 0; tx < 16; tx += 1)
+            if word_bit_on(row, tx)
+                scr.set_x(x + tx).set_y(y + ty).pixel(body)
+;
+
+-- Down-sampled 8x8 piece for the captured-piece tally in the side panel.
+-- Samples every second pixel of the full 16x16 design.
+: draw_piece_small(scr = vimana.screen, x = num, y = num, kind = num, color = num) (( -- ))
+    let bmp = chess_data.piece_bitmap(kind)
+    for (let ?sy = 0; sy < 8; sy += 1)
+        let row = bmp[sy * 2]
+        for (let ?sx = 0; sx < 8; sx += 1)
+            if word_bit_on(row, sx * 2)
+                scr.set_x(x + sx).set_y(y + sy).pixel(color)
+;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Board
+-- ─────────────────────────────────────────────────────────────────────────────
+
+: square_color(col = num, row = num) (( num ))
+    if (col + row) % 2 == 0
+        <- C_LIGHT_SQ
+    <- C_DARK_SQ
+;
+
+: piece_body(p = num) (( num ))
+    if chess_model.piece_side(p) == chess_model.SIDE_WHITE
+        <- C_WHITE
+    <- C_BLACK
+;
+
+: piece_outline(p = num) (( num ))
+    if chess_model.piece_side(p) == chess_model.SIDE_WHITE
+        <- C_BLACK
+    <- C_WHITE
+;
+
+: draw_cell(scr = vimana.screen, col = num, row = num) (( -- ))
+    let cx = BOARD_X + col * CELL
+    let cy = BOARD_Y + row * CELL
+    fill_rect(scr, cx, cy, CELL, CELL, square_color(col, row))
+
+    -- Last move trail (under the piece)
+    if col == chess_model.get_last_from_x() && row == chess_model.get_last_from_y()
+        outline_rect(scr, cx, cy, CELL, CELL, C_LAST)
+    if col == chess_model.get_last_to_x() && row == chess_model.get_last_to_y()
+        outline_rect(scr, cx, cy, CELL, CELL, C_LAST)
+
+    -- Piece
+    let p = chess_model.piece_at(col, row)
+    if p != 0
+        draw_piece16(scr, cx, cy, chess_model.piece_type(p), piece_body(p), piece_outline(p))
+
+    -- Selection highlight
+    if col == chess_model.get_selected_x() && row == chess_model.get_selected_y()
+        outline_rect(scr, cx, cy, CELL, CELL, C_SELECT)
+        outline_rect(scr, cx + 1, cy + 1, CELL - 2, CELL - 2, C_SELECT)
+;
+
+: draw_board(scr = vimana.screen) (( -- ))
+    for (let ?r = 0; r < 8; r += 1)
+        for (let ?c = 0; c < 8; c += 1)
+            draw_cell(scr, c, r)
+
+    -- Legal move dots (drawn on top so they stay visible)
+    let moves = chess_model.moves_list()
+    let count = stdr.floor(#moves / 2)
+    for (let ?i = 0; i < count; i += 1)
+        let mx = moves[i * 2]
+        let my = moves[i * 2 + 1]
+        let cx = BOARD_X + mx * CELL
+        let cy = BOARD_Y + my * CELL
+        let target = chess_model.piece_at(mx, my)
+        if target == 0
+            -- Centered 4x4 dot
+            fill_rect(scr, cx + 6, cy + 6, 4, 4, C_MOVE)
+        else
+            -- Capture marker: corner ticks
+            for (let ?d = 0; d < 3; d += 1)
+                scr.set_x(cx + d).set_y(cy).pixel(C_MOVE)
+                scr.set_x(cx).set_y(cy + d).pixel(C_MOVE)
+                scr.set_x(cx + CELL - 1 - d).set_y(cy).pixel(C_MOVE)
+                scr.set_x(cx + CELL - 1).set_y(cy + d).pixel(C_MOVE)
+                scr.set_x(cx + d).set_y(cy + CELL - 1).pixel(C_MOVE)
+                scr.set_x(cx).set_y(cy + CELL - 1 - d).pixel(C_MOVE)
+                scr.set_x(cx + CELL - 1 - d).set_y(cy + CELL - 1).pixel(C_MOVE)
+                scr.set_x(cx + CELL - 1).set_y(cy + CELL - 1 - d).pixel(C_MOVE)
+;
+
+: draw_board_frame(scr = vimana.screen) (( -- ))
+    outline_rect(scr, BOARD_X - 1, BOARD_Y - 1, BOARD_PX + 2, BOARD_PX + 2, C_INK)
+
+    -- File letters (a-h) below the board
+    let labels = "abcdefgh"
+    for (let ?c = 0; c < 8; c += 1)
+        let cx = BOARD_X + c * CELL + 4
+        scr.put_text(cx, BOARD_Y + BOARD_PX + 2, stdr.slice(labels, c, c + 1), C_INK, C_BG)
+
+    -- Rank numbers (8..1) to the left of the board
+    for (let ?r = 0; r < 8; r += 1)
+        let rank = stdr.str(8 - r)
+        scr.put_text(4, BOARD_Y + r * CELL, rank, C_INK, C_BG)
+;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Side panel
+-- ─────────────────────────────────────────────────────────────────────────────
+
+: draw_lost_row(scr = vimana.screen, x = num, y = num, side = num) (( -- ))
+    let ?cur_x = x
+    -- Iterate piece types in descending value: queen, rook, bishop, knight, pawn
+    let order = [chess_model.QUEEN, chess_model.ROOK, chess_model.BISHOP, chess_model.KNIGHT, chess_model.PAWN]
+    let ?ink = C_BLACK
+    if side == chess_model.SIDE_WHITE
+        ink = C_WHITE
+    for (let ?i = 0; i < 5; i += 1)
+        let kind = order[i]
+        let ?count = 0
+        if side == chess_model.SIDE_WHITE
+            count = chess_model.white_lost_count(kind)
+        else
+            count = chess_model.black_lost_count(kind)
+        if count <= 0
+            continue
+        draw_piece_small(scr, cur_x, y, kind, ink)
+        if count > 1
+            scr.put_text(cur_x + 8, y - 4, stdr.str(count), C_INK, C_PANEL)
+            cur_x += 18
+        else
+            cur_x += 10
+;
+
+: turn_banner() (( string ))
+    if chess_model.get_state() == chess_model.STATE_OVER
+        if chess_model.get_winner() == chess_model.SIDE_WHITE
+            <- "YOU WIN!"
+        <- "CPU WINS"
+    if chess_model.get_turn() == chess_model.SIDE_WHITE
+        <- "YOUR TURN"
+    <- "CPU TURN"
+;
+
+: draw_panel(scr = vimana.screen) (( -- ))
+    fill_rect(scr, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, C_PANEL)
+    outline_rect(scr, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, C_INK)
+
+    scr.put_text(PANEL_X + 4, PANEL_Y + 4, turn_banner(), C_INK, C_PANEL)
+
+    -- Divider under header
+    for (let ?i = 0; i < PANEL_W - 8; i += 1)
+        scr.set_x(PANEL_X + 4 + i).set_y(PANEL_Y + 22).pixel(C_ACCENT)
+
+    -- Captured pieces, organised by who has lost them.
+    scr.put_text(PANEL_X + 4, PANEL_Y + 26, "LOST", C_ACCENT, C_PANEL)
+
+    scr.put_text(PANEL_X + 4, PANEL_Y + 44, "W", C_WHITE, C_PANEL)
+    draw_lost_row(scr, PANEL_X + 18, PANEL_Y + 48, chess_model.SIDE_WHITE)
+
+    scr.put_text(PANEL_X + 4, PANEL_Y + 62, "B", C_INK, C_PANEL)
+    draw_lost_row(scr, PANEL_X + 18, PANEL_Y + 66, chess_model.SIDE_BLACK)
+
+    -- Divider
+    for (let ?j = 0; j < PANEL_W - 8; j += 1)
+        scr.set_x(PANEL_X + 4 + j).set_y(PANEL_Y + 84).pixel(C_ACCENT)
+
+    -- Last move (algebraic-ish: file + rank)
+    scr.put_text(PANEL_X + 4, PANEL_Y + 88, "LAST", C_ACCENT, C_PANEL)
+    let from_x = chess_model.get_last_from_x()
+    if from_x >= 0
+        let files = "abcdefgh"
+        let ff = stdr.slice(files, from_x, from_x + 1)
+        let fr = stdr.str(8 - chess_model.get_last_from_y())
+        let tf = stdr.slice(files, chess_model.get_last_to_x(), chess_model.get_last_to_x() + 1)
+        let tr = stdr.str(8 - chess_model.get_last_to_y())
+        scr.put_text(PANEL_X + 4, PANEL_Y + 106, ff + fr + "-" + tf + tr, C_INK, C_PANEL)
+
+    -- Footer hint
+    scr.put_text(PANEL_X + 4, PANEL_Y + PANEL_H - 20, "R RESET", C_ACCENT, C_PANEL)
+;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Public render
+-- ─────────────────────────────────────────────────────────────────────────────
+
+:: setup(scr = vimana.screen) (( -- ))
+    scr.set_palette(C_BG,       "#2a2620")
+        .set_palette(C_INK,       "#f0e6d2")
+        .set_palette(C_TBAR_BG,   "#5a4838")
+        .set_palette(C_TBAR_DK,   "#1a1410")
+        .set_palette(C_LIGHT_SQ,  "#e8d5a8")
+        .set_palette(C_DARK_SQ,   "#8a6543")
+        .set_palette(C_WHITE,     "#ffffff")
+        .set_palette(C_BLACK,     "#1a1410")
+        .set_palette(C_SELECT,    "#d8c060")
+        .set_palette(C_MOVE,      "#5d8a47")
+        .set_palette(C_LAST,      "#a07050")
+        .set_palette(C_PANEL,     "#3a342c")
+        .set_palette(C_ACCENT,    "#a8927a")
+    chess_font.install(scr)
+;
+
+:: render(scr = vimana.screen) (( -- ))
+    scr.clear(C_BG)
+    draw_board_frame(scr)
+    draw_board(scr)
+    draw_panel(scr)
+;
+
+-- Convert a pixel coord to a board (col, row). Returns [-1, -1] if outside.
+:: pixel_to_cell(px = num, py = num) (( [num] ))
+    if px < BOARD_X || px >= BOARD_X + BOARD_PX
+        <- [-1, -1]
+    if py < BOARD_Y || py >= BOARD_Y + BOARD_PX
+        <- [-1, -1]
+    let col = stdr.floor((px - BOARD_X) / CELL)
+    let row = stdr.floor((py - BOARD_Y) / CELL)
+    <- [col, row]
+;

@@ -1,0 +1,385 @@
+cask chess_model
+
+bring stdr
+
+-- Piece encoding:
+--   0       = empty
+--   1..6    = white  (1=pawn, 2=knight, 3=bishop, 4=rook, 5=queen, 6=king)
+--   9..14   = black  (white_value + 8)
+
+def EMPTY  = 0
+def PAWN   = 1
+def KNIGHT = 2
+def BISHOP = 3
+def ROOK   = 4
+def QUEEN  = 5
+def KING   = 6
+def BLACK_OFFSET = 8
+
+def SIDE_WHITE = 0
+def SIDE_BLACK = 1
+
+def STATE_PLAY = 0
+def STATE_OVER = 1
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Board state
+-- ─────────────────────────────────────────────────────────────────────────────
+
+def ?board = [
+    12, 10, 11, 13, 14, 11, 10, 12,
+     9,  9,  9,  9,  9,  9,  9,  9,
+     0,  0,  0,  0,  0,  0,  0,  0,
+     0,  0,  0,  0,  0,  0,  0,  0,
+     0,  0,  0,  0,  0,  0,  0,  0,
+     0,  0,  0,  0,  0,  0,  0,  0,
+     1,  1,  1,  1,  1,  1,  1,  1,
+     4,  2,  3,  5,  6,  3,  2,  4
+]
+
+def ?turn = 0
+def ?state = 0
+def ?winner = -1
+
+def ?selected_x = -1
+def ?selected_y = -1
+
+-- How many pieces of each side have been captured, indexed by piece type 1..6.
+def ?white_lost = [0, 0, 0, 0, 0, 0, 0]
+def ?black_lost = [0, 0, 0, 0, 0, 0, 0]
+
+-- Last move (for display): from/to coords + moved piece
+def ?last_from_x = -1
+def ?last_from_y = -1
+def ?last_to_x = -1
+def ?last_to_y = -1
+def ?last_piece = 0
+
+-- Pending legal-move highlights (flat list of x,y pairs)
+def ?moves = []: [num]
+
+def ?dirty = true
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Helpers
+-- ─────────────────────────────────────────────────────────────────────────────
+
+:: piece_type(p = num) (( num ))
+    if p == 0
+        <- 0
+    if p >= BLACK_OFFSET + 1
+        <- p - BLACK_OFFSET
+    <- p
+;
+
+:: piece_side(p = num) (( num ))
+    if p == 0
+        <- -1
+    if p >= BLACK_OFFSET + 1
+        <- SIDE_BLACK
+    <- SIDE_WHITE
+;
+
+:: piece_at(x = num, y = num) (( num ))
+    if x < 0 || x > 7 || y < 0 || y > 7
+        <- -1
+    <- board[y * 8 + x]
+;
+
+: set_piece(x = num, y = num, p = num) (( -- ))
+    board[y * 8 + x] = p
+;
+
+-- Raw cell write for AI search; doesn't touch turn/captures/last-move.
+:: set_cell(x = num, y = num, p = num) (( -- ))
+    board[y * 8 + x] = p
+;
+
+-- Public move generator (legal squares only, doesn't enforce check).
+:: gen_moves(x = num, y = num) (( [num] ))
+    <- gen_moves_for(x, y)
+;
+
+-- Apply a real move with all side effects (turn flip, capture log, promotion).
+:: apply_move(fx = num, fy = num, tx = num, ty = num) (( -- ))
+    do_move(fx, fy, tx, ty)
+    mark_dirty()
+;
+
+:: get_turn() (( num )) <- turn ;
+:: get_state() (( num )) <- state ;
+:: get_winner() (( num )) <- winner ;
+:: get_selected_x() (( num )) <- selected_x ;
+:: get_selected_y() (( num )) <- selected_y ;
+:: get_last_from_x() (( num )) <- last_from_x ;
+:: get_last_from_y() (( num )) <- last_from_y ;
+:: get_last_to_x() (( num )) <- last_to_x ;
+:: get_last_to_y() (( num )) <- last_to_y ;
+:: get_last_piece() (( num )) <- last_piece ;
+
+:: white_lost_count(piece_type_id = num) (( num ))
+    <- white_lost[piece_type_id]
+;
+
+:: black_lost_count(piece_type_id = num) (( num ))
+    <- black_lost[piece_type_id]
+;
+
+:: mark_dirty() (( -- ))
+    dirty = true
+;
+
+:: take_dirty() (( bool ))
+    let d = dirty
+    dirty = false
+    <- d
+;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Move generation
+-- ─────────────────────────────────────────────────────────────────────────────
+
+: in_bounds(x = num, y = num) (( bool ))
+    <- x >= 0 && x < 8 && y >= 0 && y < 8
+;
+
+: add_move(list = [num], x = num, y = num) (( -- ))
+    stdr.push(list, x)
+    stdr.push(list, y)
+;
+
+: try_add(list = [num], from_side = num, x = num, y = num) (( bool ))
+    -- Returns true if movement may continue past this square (only on empty),
+    -- false if blocked (own piece or after a capture).
+    if !in_bounds(x, y)
+        <- false
+    let target = piece_at(x, y)
+    if target == 0
+        add_move(list, x, y)
+        <- true
+    let target_side = piece_side(target)
+    if target_side != from_side
+        add_move(list, x, y)
+    <- false
+;
+
+: gen_pawn(list = [num], x = num, y = num, side = num) (( -- ))
+    let ?dir = -1
+    let ?start_row = 6
+    if side == SIDE_BLACK
+        dir = 1
+        start_row = 1
+    let ny = y + dir
+    if in_bounds(x, ny) && piece_at(x, ny) == 0
+        add_move(list, x, ny)
+        let ny2 = y + dir * 2
+        if y == start_row && piece_at(x, ny2) == 0
+            add_move(list, x, ny2)
+    let dx_left = x - 1
+    if in_bounds(dx_left, ny)
+        let t = piece_at(dx_left, ny)
+        if t != 0 && piece_side(t) != side
+            add_move(list, dx_left, ny)
+    let dx_right = x + 1
+    if in_bounds(dx_right, ny)
+        let t = piece_at(dx_right, ny)
+        if t != 0 && piece_side(t) != side
+            add_move(list, dx_right, ny)
+;
+
+: gen_step(list = [num], x = num, y = num, side = num, deltas = [num]) (( -- ))
+    let count = #deltas / 2
+    for (let ?i = 0; i < count; i += 1)
+        let dx = deltas[i * 2]
+        let dy = deltas[i * 2 + 1]
+        let nx = x + dx
+        let ny = y + dy
+        if in_bounds(nx, ny)
+            let t = piece_at(nx, ny)
+            if t == 0
+                add_move(list, nx, ny)
+            elif piece_side(t) != side
+                add_move(list, nx, ny)
+;
+
+: gen_slide(list = [num], x = num, y = num, side = num, deltas = [num]) (( -- ))
+    let count = #deltas / 2
+    for (let ?i = 0; i < count; i += 1)
+        let dx = deltas[i * 2]
+        let dy = deltas[i * 2 + 1]
+        let ?nx = x + dx
+        let ?ny = y + dy
+        let ?cont = true
+        for (let ?step = 0; step < 8 && cont; step += 1)
+            cont = try_add(list, side, nx, ny)
+            nx += dx
+            ny += dy
+;
+
+def KNIGHT_DELTAS = [
+     1,  2,   2,  1,   2, -1,   1, -2,
+    -1, -2,  -2, -1,  -2,  1,  -1,  2
+]
+def KING_DELTAS = [
+    -1, -1,   0, -1,   1, -1,
+    -1,  0,            1,  0,
+    -1,  1,   0,  1,   1,  1
+]
+def ROOK_DELTAS = [
+     1,  0,  -1,  0,   0,  1,   0, -1
+]
+def BISHOP_DELTAS = [
+     1,  1,   1, -1,  -1,  1,  -1, -1
+]
+def QUEEN_DELTAS = [
+     1,  0,  -1,  0,   0,  1,   0, -1,
+     1,  1,   1, -1,  -1,  1,  -1, -1
+]
+
+: gen_moves_for(x = num, y = num) (( [num] ))
+    let p = piece_at(x, y)
+    let out = []: [num]
+    if p == 0
+        <- out
+    let side = piece_side(p)
+    let kind = piece_type(p)
+    if kind == PAWN
+        gen_pawn(out, x, y, side)
+    elif kind == KNIGHT
+        gen_step(out, x, y, side, KNIGHT_DELTAS)
+    elif kind == KING
+        gen_step(out, x, y, side, KING_DELTAS)
+    elif kind == ROOK
+        gen_slide(out, x, y, side, ROOK_DELTAS)
+    elif kind == BISHOP
+        gen_slide(out, x, y, side, BISHOP_DELTAS)
+    elif kind == QUEEN
+        gen_slide(out, x, y, side, QUEEN_DELTAS)
+    <- out
+;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Selection and move execution
+-- ─────────────────────────────────────────────────────────────────────────────
+
+:: moves_list() (( [num] ))
+    <- moves
+;
+
+:: is_legal_target(x = num, y = num) (( bool ))
+    let count = #moves / 2
+    for (let ?i = 0; i < count; i += 1)
+        if moves[i * 2] == x && moves[i * 2 + 1] == y
+            <- true
+    <- false
+;
+
+: clear_selection() (( -- ))
+    selected_x = -1
+    selected_y = -1
+    moves = []: [num]
+;
+
+: select(x = num, y = num) (( -- ))
+    selected_x = x
+    selected_y = y
+    moves = gen_moves_for(x, y)
+;
+
+: record_capture(captured = num) (( -- ))
+    let kind = piece_type(captured)
+    if kind == 0
+        <-
+    if piece_side(captured) == SIDE_WHITE
+        white_lost[kind] = white_lost[kind] + 1
+    else
+        black_lost[kind] = black_lost[kind] + 1
+;
+
+: do_move(fx = num, fy = num, tx = num, ty = num) (( -- ))
+    let moving = piece_at(fx, fy)
+    let target = piece_at(tx, ty)
+    if target != 0
+        record_capture(target)
+        if piece_type(target) == KING
+            state = STATE_OVER
+            winner = piece_side(moving)
+    let ?placed = moving
+    let kind = piece_type(moving)
+    let side = piece_side(moving)
+    -- Pawn promotion (auto-queen)
+    if kind == PAWN
+        if side == SIDE_WHITE && ty == 0
+            placed = QUEEN
+        elif side == SIDE_BLACK && ty == 7
+            placed = QUEEN + BLACK_OFFSET
+    set_piece(tx, ty, placed)
+    set_piece(fx, fy, 0)
+    last_from_x = fx
+    last_from_y = fy
+    last_to_x = tx
+    last_to_y = ty
+    last_piece = placed
+    if state != STATE_OVER
+        turn = 1 - turn
+    clear_selection()
+;
+
+:: click(x = num, y = num) (( -- ))
+    if state == STATE_OVER
+        <-
+    if !in_bounds(x, y)
+        clear_selection()
+        mark_dirty()
+        <-
+    let target = piece_at(x, y)
+    let side_at_target = piece_side(target)
+
+    -- No active selection: pick up own piece if any
+    if selected_x < 0
+        if target != 0 && side_at_target == turn
+            select(x, y)
+            mark_dirty()
+        <-
+    -- Click on own piece: switch selection
+    if target != 0 && side_at_target == turn
+        select(x, y)
+        mark_dirty()
+        <-
+    -- Click on legal destination: move
+    if is_legal_target(x, y)
+        do_move(selected_x, selected_y, x, y)
+        mark_dirty()
+        <-
+    -- Otherwise cancel
+    clear_selection()
+    mark_dirty()
+;
+
+:: reset() (( -- ))
+    let init = [
+        12, 10, 11, 13, 14, 11, 10, 12,
+         9,  9,  9,  9,  9,  9,  9,  9,
+         0,  0,  0,  0,  0,  0,  0,  0,
+         0,  0,  0,  0,  0,  0,  0,  0,
+         0,  0,  0,  0,  0,  0,  0,  0,
+         0,  0,  0,  0,  0,  0,  0,  0,
+         1,  1,  1,  1,  1,  1,  1,  1,
+         4,  2,  3,  5,  6,  3,  2,  4
+    ]
+    for (let ?i = 0; i < 64; i += 1)
+        board[i] = init[i]
+    for (let ?j = 0; j < 7; j += 1)
+        white_lost[j] = 0
+        black_lost[j] = 0
+    turn = SIDE_WHITE
+    state = STATE_PLAY
+    winner = -1
+    last_from_x = -1
+    last_from_y = -1
+    last_to_x = -1
+    last_to_y = -1
+    last_piece = 0
+    clear_selection()
+    mark_dirty()
+;

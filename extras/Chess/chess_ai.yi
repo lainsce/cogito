@@ -1,0 +1,137 @@
+cask chess_ai
+
+bring stdr
+bring chess_model
+
+-- Simple negamax search with material evaluation.
+--   - Piece values are classic.
+--   - The KING value is enormous so the search never voluntarily walks into
+--     a square the opponent can capture from (and also strongly prefers
+--     capturing the opponent's king when possible).
+--   - No check/checkmate awareness, no castling, no en-passant; matches the
+--     model's move generator.
+
+def VALUE_PAWN   = 100
+def VALUE_KNIGHT = 320
+def VALUE_BISHOP = 330
+def VALUE_ROOK   = 500
+def VALUE_QUEEN  = 900
+def VALUE_KING   = 20000
+def NEG_INF      = -999999
+
+pub def DEFAULT_DEPTH = 2
+
+: piece_value(kind = num) (( num ))
+    if kind == chess_model.PAWN
+        <- VALUE_PAWN
+    if kind == chess_model.KNIGHT
+        <- VALUE_KNIGHT
+    if kind == chess_model.BISHOP
+        <- VALUE_BISHOP
+    if kind == chess_model.ROOK
+        <- VALUE_ROOK
+    if kind == chess_model.QUEEN
+        <- VALUE_QUEEN
+    if kind == chess_model.KING
+        <- VALUE_KING
+    <- 0
+;
+
+-- Evaluate static material from `side`'s POV.
+: evaluate(side = num) (( num ))
+    let ?score = 0
+    for (let ?y = 0; y < 8; y += 1)
+        for (let ?x = 0; x < 8; x += 1)
+            let p = chess_model.piece_at(x, y)
+            if p == 0
+                continue
+            let v = piece_value(chess_model.piece_type(p))
+            if chess_model.piece_side(p) == side
+                score += v
+            else
+                score -= v
+    <- score
+;
+
+: other(side = num) (( num ))
+    <- 1 - side
+;
+
+-- Negamax. Returns best score for `side` to move with `depth` plies remaining.
+: negamax(side = num, depth = num) (( num ))
+    if depth == 0
+        <- evaluate(side)
+    let ?best = NEG_INF
+    let ?has_move = false
+    for (let ?y = 0; y < 8; y += 1)
+        for (let ?x = 0; x < 8; x += 1)
+            let p = chess_model.piece_at(x, y)
+            if p == 0
+                continue
+            if chess_model.piece_side(p) != side
+                continue
+            let moves = chess_model.gen_moves(x, y)
+            let count = stdr.floor(#moves / 2)
+            for (let ?i = 0; i < count; i += 1)
+                let tx = moves[i * 2]
+                let ty = moves[i * 2 + 1]
+                let captured = chess_model.piece_at(tx, ty)
+                -- Make
+                chess_model.set_cell(tx, ty, p)
+                chess_model.set_cell(x, y, 0)
+                has_move = true
+                let ?score = 0
+                -- If we just captured the opposing king, no need to recurse.
+                if chess_model.piece_type(captured) == chess_model.KING
+                    score = VALUE_KING
+                else
+                    score = -negamax(other(side), depth - 1)
+                -- Unmake
+                chess_model.set_cell(x, y, p)
+                chess_model.set_cell(tx, ty, captured)
+                if score > best
+                    best = score
+    if !has_move
+        <- evaluate(side)
+    <- best
+;
+
+-- Returns [fx, fy, tx, ty] for the best move, or [-1, -1, -1, -1] if none.
+:: choose_move(side = num, depth = num) (( [num] ))
+    let ?best_score = NEG_INF
+    let ?best = [-1, -1, -1, -1]
+    let ?picked = 0
+    for (let ?y = 0; y < 8; y += 1)
+        for (let ?x = 0; x < 8; x += 1)
+            let p = chess_model.piece_at(x, y)
+            if p == 0
+                continue
+            if chess_model.piece_side(p) != side
+                continue
+            let moves = chess_model.gen_moves(x, y)
+            let count = stdr.floor(#moves / 2)
+            for (let ?i = 0; i < count; i += 1)
+                let tx = moves[i * 2]
+                let ty = moves[i * 2 + 1]
+                let captured = chess_model.piece_at(tx, ty)
+                chess_model.set_cell(tx, ty, p)
+                chess_model.set_cell(x, y, 0)
+                let ?score = 0
+                if chess_model.piece_type(captured) == chess_model.KING
+                    score = VALUE_KING
+                else
+                    score = -negamax(other(side), depth - 1)
+                chess_model.set_cell(x, y, p)
+                chess_model.set_cell(tx, ty, captured)
+                if score > best_score
+                    best_score = score
+                    best = [x, y, tx, ty]
+                    picked = 1
+                elif score == best_score && picked > 0
+                    -- Light tie-breaking jitter using current ticks so the AI
+                    -- doesn't always pick the same equal-score move.
+                    picked += 1
+                    if (y * 8 + x + tx + ty) % picked == 0
+                        best = [x, y, tx, ty]
+    <- best
+;

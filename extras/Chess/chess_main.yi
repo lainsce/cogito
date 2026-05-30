@@ -1,0 +1,97 @@
+cask main
+
+bring stdr
+bring vimana
+bring chess_model
+bring chess_view
+bring chess_chrome
+bring chess_ai
+
+-- SDL scancodes (vimana only exposes key_escape directly)
+def KEY_R = 21
+
+-- The human plays white; the CPU plays black.
+def AI_DELAY_MS = 350
+def ?ai_due_ticks = -1
+
+: on_mouse(dev = vimana.device) (( -- ))
+    if !dev.mouse_pressed(vimana.mouse_left)
+        <-
+    -- Only accept clicks during the human's turn.
+    if chess_model.get_turn() != chess_model.SIDE_WHITE
+        <-
+    if chess_model.get_state() == chess_model.STATE_OVER
+        <-
+    let mx = dev.pointer_x()
+    let my = dev.pointer_y()
+    let cell = chess_view.pixel_to_cell(mx, my)
+    chess_model.click(cell[0], cell[1])
+;
+
+: on_key(sys = vimana.system, dev = vimana.device) (( -- ))
+    if dev.key_pressed(KEY_R)
+        chess_model.reset()
+        ai_due_ticks = -1
+    if dev.key_pressed(vimana.key_escape)
+        sys.quit()
+;
+
+: tick_ai(sys = vimana.system) (( -- ))
+    if chess_model.get_state() == chess_model.STATE_OVER
+        ai_due_ticks = -1
+        <-
+    if chess_model.get_turn() != chess_model.SIDE_BLACK
+        ai_due_ticks = -1
+        <-
+    let now = sys.ticks()
+    if ai_due_ticks < 0
+        -- Just-became the CPU's turn: schedule the move so the player can
+        -- see their move land before the response appears.
+        ai_due_ticks = now + AI_DELAY_MS
+        <-
+    if now < ai_due_ticks
+        <-
+    let mv = chess_ai.choose_move(chess_model.SIDE_BLACK, chess_ai.DEFAULT_DEPTH)
+    if mv[0] >= 0
+        chess_model.apply_move(mv[0], mv[1], mv[2], mv[3])
+    ai_due_ticks = -1
+;
+
+-> ()
+    let sys = vimana.system()
+    let scr = vimana.screen("CHESS", chess_view.WIN_W, chess_view.WIN_H, 1)
+    chess_view.setup(scr)
+    chess_chrome.install(scr)
+    chess_model.reset()
+
+    let dev = sys.device()
+
+    sys.run(scr, () => {
+        dev.poll()
+
+        let titlebar_busy = chess_chrome.update_titlebar(dev, sys, scr)
+        if !chess_chrome.is_shaded()
+            if !titlebar_busy
+                on_mouse(dev)
+            on_key(sys, dev)
+            tick_ai(sys)
+
+        let cursor_dirty = chess_chrome.cursor_moved(dev)
+        let body_dirty = chess_model.take_dirty() || chess_chrome.close_active_changed() || chess_chrome.shade_changed()
+        let full_redraw = body_dirty || cursor_dirty
+
+        if full_redraw
+            chess_chrome.remember_chrome_state()
+            if !chess_chrome.is_shaded()
+                chess_view.render(scr)
+            else
+                scr.clear(chess_view.C_BG)
+            chess_chrome.draw_titlebar_bg(scr)
+            chess_chrome.draw_titlebar_decor(scr)
+            chess_chrome.draw_titlebar_text(scr, "CHESS")
+            chess_chrome.draw_close_button(scr)
+            scr.set_auto(0x00)
+            chess_chrome.draw_cursor(scr, dev)
+            scr.present()
+    })
+;
