@@ -20,7 +20,7 @@ def ?ai_due_ticks = -1
     -- Only accept clicks during the human's turn.
     if chess_model.get_turn() != chess_model.SIDE_WHITE
         <-
-    if chess_model.get_state() == chess_model.STATE_OVER
+    if chess_model.get_state() != chess_model.STATE_PLAY
         <-
     let mx = dev.pointer_x()
     let my = dev.pointer_y()
@@ -37,7 +37,7 @@ def ?ai_due_ticks = -1
 ;
 
 : tick_ai(sys = vimana.system) (( -- ))
-    if chess_model.get_state() == chess_model.STATE_OVER
+    if chess_model.get_state() != chess_model.STATE_PLAY
         ai_due_ticks = -1
         <-
     if chess_model.get_turn() != chess_model.SIDE_BLACK

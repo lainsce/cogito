@@ -221,7 +221,10 @@ def C_ACCENT   = 12  -- side panel accent line
 ;
 
 : turn_banner() (( string ))
-    if chess_model.get_state() == chess_model.STATE_OVER
+    let s = chess_model.get_state()
+    if s == chess_model.STATE_DRAW
+        <- "STALEMATE"
+    if s == chess_model.STATE_OVER
         if chess_model.get_winner() == chess_model.SIDE_WHITE
             <- "YOU WIN!"
         <- "CPU WINS"
@@ -230,31 +233,45 @@ def C_ACCENT   = 12  -- side panel accent line
     <- "CPU TURN"
 ;
 
+: status_line() (( string ))
+    let s = chess_model.get_state()
+    if s == chess_model.STATE_DRAW
+        <- "NO MOVES."
+    if s == chess_model.STATE_OVER
+        <- "CHECKMATE"
+    if chess_model.in_check(chess_model.get_turn())
+        <- "CHECK!"
+    <- ""
+;
+
 : draw_panel(scr = vimana.screen) (( -- ))
     fill_rect(scr, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, C_PANEL)
     outline_rect(scr, PANEL_X, PANEL_Y, PANEL_W, PANEL_H, C_INK)
 
     scr.put_text(PANEL_X + 4, PANEL_Y + 4, turn_banner(), C_INK, C_PANEL)
 
-    -- Divider under header
+    let st = status_line()
+    if stdr.len(st) > 0
+        scr.put_text(PANEL_X + 4, PANEL_Y + 22, st, C_SELECT, C_PANEL)
+
+    -- Divider under header / status
     for (let ?i = 0; i < PANEL_W - 8; i += 1)
-        scr.set_x(PANEL_X + 4 + i).set_y(PANEL_Y + 22).pixel(C_ACCENT)
+        scr.set_x(PANEL_X + 4 + i).set_y(PANEL_Y + 40).pixel(C_ACCENT)
 
     -- Captured pieces, organised by who has lost them.
-    scr.put_text(PANEL_X + 4, PANEL_Y + 26, "LOST", C_ACCENT, C_PANEL)
+    scr.put_text(PANEL_X + 4, PANEL_Y + 44, "LOST", C_ACCENT, C_PANEL)
 
-    scr.put_text(PANEL_X + 4, PANEL_Y + 44, "W", C_WHITE, C_PANEL)
-    draw_lost_row(scr, PANEL_X + 18, PANEL_Y + 48, chess_model.SIDE_WHITE)
+    scr.put_text(PANEL_X + 4, PANEL_Y + 62, "W", C_WHITE, C_PANEL)
+    draw_lost_row(scr, PANEL_X + 18, PANEL_Y + 66, chess_model.SIDE_WHITE)
 
-    scr.put_text(PANEL_X + 4, PANEL_Y + 62, "B", C_INK, C_PANEL)
-    draw_lost_row(scr, PANEL_X + 18, PANEL_Y + 66, chess_model.SIDE_BLACK)
+    scr.put_text(PANEL_X + 4, PANEL_Y + 80, "B", C_INK, C_PANEL)
+    draw_lost_row(scr, PANEL_X + 18, PANEL_Y + 84, chess_model.SIDE_BLACK)
 
     -- Divider
     for (let ?j = 0; j < PANEL_W - 8; j += 1)
-        scr.set_x(PANEL_X + 4 + j).set_y(PANEL_Y + 84).pixel(C_ACCENT)
+        scr.set_x(PANEL_X + 4 + j).set_y(PANEL_Y + 102).pixel(C_ACCENT)
 
     -- Last move (algebraic-ish: file + rank)
-    scr.put_text(PANEL_X + 4, PANEL_Y + 88, "LAST", C_ACCENT, C_PANEL)
     let from_x = chess_model.get_last_from_x()
     if from_x >= 0
         let files = "abcdefgh"
@@ -262,7 +279,7 @@ def C_ACCENT   = 12  -- side panel accent line
         let fr = stdr.str(8 - chess_model.get_last_from_y())
         let tf = stdr.slice(files, chess_model.get_last_to_x(), chess_model.get_last_to_x() + 1)
         let tr = stdr.str(8 - chess_model.get_last_to_y())
-        scr.put_text(PANEL_X + 4, PANEL_Y + 106, ff + fr + "-" + tf + tr, C_INK, C_PANEL)
+        scr.put_text(PANEL_X + 4, PANEL_Y + 108, ff + fr + "-" + tf + tr, C_INK, C_PANEL)
 
     -- Footer hint
     scr.put_text(PANEL_X + 4, PANEL_Y + PANEL_H - 20, "R RESET", C_ACCENT, C_PANEL)

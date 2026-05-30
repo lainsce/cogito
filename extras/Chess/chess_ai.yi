@@ -3,13 +3,14 @@ cask chess_ai
 bring stdr
 bring chess_model
 
--- Simple negamax search with material evaluation.
---   - Piece values are classic.
---   - The KING value is enormous so the search never voluntarily walks into
---     a square the opponent can capture from (and also strongly prefers
---     capturing the opponent's king when possible).
---   - No check/checkmate awareness, no castling, no en-passant; matches the
---     model's move generator.
+-- Negamax search with material evaluation.
+--   - The model's gen_moves returns legal moves only (no leaving the king in
+--     check) and includes castling + en-passant, so the AI inherits those
+--     rules for free.
+--   - "No legal moves" inside negamax means checkmate (if currently in check
+--     → very negative score) or stalemate (→ 0, a draw).
+--   - Search uses snapshot/restore around search_move so castling rights,
+--     en-passant targets, and the side to move all round-trip correctly.
 
 def VALUE_PAWN   = 100
 def VALUE_KNIGHT = 320
@@ -18,6 +19,7 @@ def VALUE_ROOK   = 500
 def VALUE_QUEEN  = 900
 def VALUE_KING   = 20000
 def NEG_INF      = -999999
+def MATE_SCORE   = 100000
 
 pub def DEFAULT_DEPTH = 2
 
@@ -37,7 +39,7 @@ pub def DEFAULT_DEPTH = 2
     <- 0
 ;
 
--- Evaluate static material from `side`'s POV.
+-- Static material evaluation from `side`'s POV.
 : evaluate(side = num) (( num ))
     let ?score = 0
     for (let ?y = 0; y < 8; y += 1)
@@ -61,8 +63,10 @@ pub def DEFAULT_DEPTH = 2
 : negamax(side = num, depth = num) (( num ))
     if depth == 0
         <- evaluate(side)
+
     let ?best = NEG_INF
     let ?has_move = false
+
     for (let ?y = 0; y < 8; y += 1)
         for (let ?x = 0; x < 8; x += 1)
             let p = chess_model.piece_at(x, y)
@@ -75,24 +79,19 @@ pub def DEFAULT_DEPTH = 2
             for (let ?i = 0; i < count; i += 1)
                 let tx = moves[i * 2]
                 let ty = moves[i * 2 + 1]
-                let captured = chess_model.piece_at(tx, ty)
-                -- Make
-                chess_model.set_cell(tx, ty, p)
-                chess_model.set_cell(x, y, 0)
+                let snap = chess_model.snapshot()
+                chess_model.search_move(x, y, tx, ty)
+                let score = -negamax(other(side), depth - 1)
+                chess_model.restore(snap)
                 has_move = true
-                let ?score = 0
-                -- If we just captured the opposing king, no need to recurse.
-                if chess_model.piece_type(captured) == chess_model.KING
-                    score = VALUE_KING
-                else
-                    score = -negamax(other(side), depth - 1)
-                -- Unmake
-                chess_model.set_cell(x, y, p)
-                chess_model.set_cell(tx, ty, captured)
                 if score > best
                     best = score
+
     if !has_move
-        <- evaluate(side)
+        -- No legal moves: checkmate or stalemate.
+        if chess_model.in_check(side)
+            <- -MATE_SCORE
+        <- 0
     <- best
 ;
 
@@ -113,23 +112,15 @@ pub def DEFAULT_DEPTH = 2
             for (let ?i = 0; i < count; i += 1)
                 let tx = moves[i * 2]
                 let ty = moves[i * 2 + 1]
-                let captured = chess_model.piece_at(tx, ty)
-                chess_model.set_cell(tx, ty, p)
-                chess_model.set_cell(x, y, 0)
-                let ?score = 0
-                if chess_model.piece_type(captured) == chess_model.KING
-                    score = VALUE_KING
-                else
-                    score = -negamax(other(side), depth - 1)
-                chess_model.set_cell(x, y, p)
-                chess_model.set_cell(tx, ty, captured)
+                let snap = chess_model.snapshot()
+                chess_model.search_move(x, y, tx, ty)
+                let score = -negamax(other(side), depth - 1)
+                chess_model.restore(snap)
                 if score > best_score
                     best_score = score
                     best = [x, y, tx, ty]
                     picked = 1
                 elif score == best_score && picked > 0
-                    -- Light tie-breaking jitter using current ticks so the AI
-                    -- doesn't always pick the same equal-score move.
                     picked += 1
                     if (y * 8 + x + tx + ty) % picked == 0
                         best = [x, y, tx, ty]
